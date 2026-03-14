@@ -1,0 +1,4 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; min-height: 100%; }
+#root { min-height: 100vh; }
+/* Inter is loaded in dashboard.css and applied in dashboard layout */
