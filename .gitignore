@@ -38,7 +38,6 @@ node_modules
 # compiled source code
 lib
 !icons/*.xml
-assets
 Dockerfile.*
 .idea
 src/script/users.csv
