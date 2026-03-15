@@ -26,6 +26,30 @@ const ENDPOINTS = {
     LIST: `${API_PREFIX}/billing`,
     CREATE: `${API_PREFIX}/billing`,
     UPDATE_STATUS: (id) => `${API_PREFIX}/billing/${id}/status`,
+    CREATE_ORDER: (id) => `${API_PREFIX}/billing/${id}/create-order`,
+    VERIFY_PAYMENT: `${API_PREFIX}/billing/verify-payment`,
+  },
+  INVITE_ONBOARDING: {
+    CREATE_SETUP_FEE_ORDER: (token) => `${API_PREFIX}/society-invites/${token}/create-setup-fee-order`,
+    CREATE_SETUP_ORDER: (token) => `${API_PREFIX}/society-invites/${token}/create-setup-order`,
+    VERIFY_PAYMENT: (token) => `${API_PREFIX}/society-invites/${token}/verify-payment`,
+  },
+  PAYMENTS: {
+    OVERVIEW: `${API_PREFIX}/payments/overview`,
+    MONTH_DETAIL: `${API_PREFIX}/payments/month-detail`,
+    SEND_REMINDER: `${API_PREFIX}/payments/send-reminder`,
+    CREATE_ORDER: `${API_PREFIX}/payments/create-order`,
+    GENERATE_RECURRING: `${API_PREFIX}/payments/generate-recurring`,
+  },
+  PLANS: {
+    LIST: `${API_PREFIX}/plans`,
+    CREATE: `${API_PREFIX}/plans`,
+    UPDATE: (id) => `${API_PREFIX}/plans/${id}`,
+  },
+  NOTIFICATIONS: {
+    LIST: `${API_PREFIX}/notifications`,
+    MARK_READ: (id) => `${API_PREFIX}/notifications/${id}/read`,
+    MARK_ALL_READ: `${API_PREFIX}/notifications/mark-all-read`,
   },
   RESIDENTS: {
     LIST: `${API_PREFIX}/residents`,

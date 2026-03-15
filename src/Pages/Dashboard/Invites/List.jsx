@@ -28,14 +28,18 @@ const InvitesList = () => {
   const [modal, setModal] = useState(false);
   const [viewLinkRow, setViewLinkRow] = useState(null);
   const [resendingId, setResendingId] = useState(null);
+  const [plans, setPlans] = useState([]);
   const [form, setForm] = useState({
     societyName: '',
     contactEmail: '',
     contactPhone: '',
     flatCount: 0,
     planType: 'shared_app',
+    planId: '',
     setupFee: 0,
     monthlyFee: 0,
+    billingCycle: 'monthly',
+    yearlyFee: 0,
     address: '',
   });
   const [submitting, setSubmitting] = useState(false);
@@ -59,11 +63,38 @@ const InvitesList = () => {
     fetchList();
   }, []);
 
+  useEffect(() => {
+    if (modal) {
+      axiosInstance.get(ENDPOINTS.PLANS.LIST).then((res) => {
+        if (res.data?.success && Array.isArray(res.data.data)) setPlans(res.data.data);
+      }).catch(() => setPlans([]));
+    }
+  }, [modal]);
+
+  const handlePlanChange = (planId) => {
+    const id = planId ? Number(planId) : null;
+    setForm((f) => {
+      const next = { ...f, planId: planId || '' };
+      if (id && plans.length) {
+        const plan = plans.find((p) => p.id === id);
+        if (plan) {
+          next.monthlyFee = plan.monthlyFee;
+          next.yearlyFee = plan.yearlyFee;
+          next.billingCycle = plan.billingCycle || 'monthly';
+        }
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setSubmitting(true);
+    const payload = { ...form };
+    if (payload.planId) payload.planId = Number(payload.planId);
+    if (!payload.planId) delete payload.planId;
     axiosInstance
-      .post(ENDPOINTS.INVITES.CREATE, form)
+      .post(ENDPOINTS.INVITES.CREATE, payload)
       .then((res) => {
         if (res.data?.success) {
           toast.success('Invite created');
@@ -74,8 +105,11 @@ const InvitesList = () => {
             contactPhone: '',
             flatCount: 0,
             planType: 'shared_app',
+            planId: '',
             setupFee: 0,
             monthlyFee: 0,
+            billingCycle: 'monthly',
+            yearlyFee: 0,
             address: '',
           });
           fetchList();
@@ -133,8 +167,10 @@ const InvitesList = () => {
                   <th>Address</th>
                   <th>Email</th>
                   <th>Plan</th>
+                  <th>Billing</th>
                   <th>Flat Count</th>
                   <th>Setup Fee</th>
+                  <th>Setup Paid</th>
                   <th>Monthly Fee</th>
                   <th>Status</th>
                   <th>Created</th>
@@ -147,9 +183,11 @@ const InvitesList = () => {
                     <td>{row.societyName}</td>
                     <td className="text-muted small" title={row.address || ''}>{row.address ? (row.address.length > 40 ? row.address.slice(0, 40) + '…' : row.address) : '–'}</td>
                     <td>{row.email}</td>
-                    <td>{row.planType}</td>
+                    <td>{row.planName || row.planType || '–'}</td>
+                    <td className="text-capitalize small">{row.billingCycle || 'monthly'}{row.yearlyFee > 0 ? ` · ₹${Number(row.yearlyFee).toLocaleString()}/yr` : ''}</td>
                     <td>{row.flatCount}</td>
                     <td>₹{Number(row.setupFee || 0).toLocaleString()}</td>
+                    <td>{row.setupFee > 0 ? (row.setupFeePaid ? <span className="badge bg-success">Paid</span> : <span className="badge bg-warning text-dark">Pending</span>) : '–'}</td>
                     <td>₹{Number(row.monthlyFee || 0).toLocaleString()}</td>
                     <td><span className={`badge ${row.status === 'pending' ? 'bg-warning text-dark' : 'bg-secondary'}`}>{row.status}</span></td>
                     <td>{row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '-'}</td>
@@ -173,17 +211,39 @@ const InvitesList = () => {
         </CardBody>
       </Card>
 
-      {/* View invite link modal */}
+      {/* View invite links modal */}
       <Modal isOpen={!!viewLinkRow} toggle={() => setViewLinkRow(null)} size="md">
-        <ModalHeader toggle={() => setViewLinkRow(null)} className="border-0 pb-0">Invite link</ModalHeader>
+        <ModalHeader toggle={() => setViewLinkRow(null)} className="border-0 pb-0">Invite links</ModalHeader>
         <ModalBody className="pt-2">
           {viewLinkRow && (
             <>
-              <p className="text-muted small mb-3">Share this link to complete onboarding:</p>
-              <div className="input-group">
-                <Input readOnly value={getInviteLink(viewLinkRow.inviteToken)} className="font-monospace small bg-light" />
-                <Button color="primary" onClick={() => copyInviteLink(viewLinkRow.inviteToken)}>Copy</Button>
-              </div>
+              {viewLinkRow.setupFee > 0 ? (
+                <>
+                  <p className="text-muted small mb-2">Send both links to the user. Link 1: one-time setup fee. Link 2: society setup (logo, details) + first period payment.</p>
+                  <FormGroup className="mb-3">
+                    <Label className="small fw-medium">Link 1 — Setup fee (one-time)</Label>
+                    <div className="input-group input-group-sm">
+                      <Input readOnly value={viewLinkRow.linkSetupFee || getInviteLink(viewLinkRow.inviteToken) + '?step=setup_fee'} className="font-monospace small bg-light" />
+                      <Button color="primary" size="sm" onClick={() => { const u = viewLinkRow.linkSetupFee || getInviteLink(viewLinkRow.inviteToken) + '?step=setup_fee'; navigator?.clipboard?.writeText(u).then(() => toast.success('Link 1 copied')); }}>Copy</Button>
+                    </div>
+                  </FormGroup>
+                  <FormGroup className="mb-0">
+                    <Label className="small fw-medium">Link 2 — Onboarding + first period</Label>
+                    <div className="input-group input-group-sm">
+                      <Input readOnly value={viewLinkRow.linkOnboarding || getInviteLink(viewLinkRow.inviteToken)} className="font-monospace small bg-light" />
+                      <Button color="primary" size="sm" onClick={() => { const u = viewLinkRow.linkOnboarding || getInviteLink(viewLinkRow.inviteToken); navigator?.clipboard?.writeText(u).then(() => toast.success('Link 2 copied')); }}>Copy</Button>
+                    </div>
+                  </FormGroup>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted small mb-3">Share this link to complete onboarding (logo, details + first period payment):</p>
+                  <div className="input-group">
+                    <Input readOnly value={viewLinkRow.linkOnboarding || getInviteLink(viewLinkRow.inviteToken)} className="font-monospace small bg-light" />
+                    <Button color="primary" onClick={() => copyInviteLink(viewLinkRow.inviteToken)}>Copy</Button>
+                  </div>
+                </>
+              )}
             </>
           )}
         </ModalBody>
@@ -237,16 +297,56 @@ const InvitesList = () => {
               </div>
               <div className="col-md-6">
                 <FormGroup className="mb-0">
-                  <Label className="form-label fw-medium">Setup Fee (₹)</Label>
-                  <Input type="number" min={0} step={0.01} value={form.setupFee} onChange={(e) => setForm((f) => ({ ...f, setupFee: Number(e.target.value) || 0 }))} className="rounded" />
+                  <Label className="form-label fw-medium">Society Plan (recurring pricing)</Label>
+                  <Input type="select" value={form.planId} onChange={(e) => handlePlanChange(e.target.value)} className="rounded">
+                    <option value="">Custom / No plan</option>
+                    {plans.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name} — {p.billingCycle} · ₹{Number(p.monthlyFee).toLocaleString()}/mo</option>
+                    ))}
+                  </Input>
                 </FormGroup>
               </div>
               <div className="col-md-6">
                 <FormGroup className="mb-0">
-                  <Label className="form-label fw-medium">Monthly Fee (₹)</Label>
-                  <Input type="number" min={0} step={0.01} value={form.monthlyFee} onChange={(e) => setForm((f) => ({ ...f, monthlyFee: Number(e.target.value) || 0 }))} className="rounded" />
+                  <Label className="form-label fw-medium">Setup Fee (₹) — one-time, optional</Label>
+                  <Input type="number" min={0} step={0.01} value={form.setupFee} onChange={(e) => setForm((f) => ({ ...f, setupFee: Number(e.target.value) || 0 }))} className="rounded" />
                 </FormGroup>
               </div>
+              {!form.planId && (
+                <>
+                  <div className="col-md-6">
+                    <FormGroup className="mb-0">
+                      <Label className="form-label fw-medium">Billing cycle</Label>
+                      <Input type="select" value={form.billingCycle} onChange={(e) => setForm((f) => ({ ...f, billingCycle: e.target.value }))} className="rounded">
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="yearly">Yearly</option>
+                      </Input>
+                    </FormGroup>
+                  </div>
+                  <div className="col-md-6">
+                    <FormGroup className="mb-0">
+                      <Label className="form-label fw-medium">Monthly Fee (₹)</Label>
+                      <Input type="number" min={0} step={0.01} value={form.monthlyFee} onChange={(e) => setForm((f) => ({ ...f, monthlyFee: Number(e.target.value) || 0 }))} className="rounded" />
+                    </FormGroup>
+                  </div>
+                  <div className="col-md-6">
+                    <FormGroup className="mb-0">
+                      <Label className="form-label fw-medium">Yearly fee (₹) — for quarterly/yearly</Label>
+                      <Input type="number" min={0} step={0.01} value={form.yearlyFee} onChange={(e) => setForm((f) => ({ ...f, yearlyFee: Number(e.target.value) || 0 }))} className="rounded" placeholder="e.g. 71988" />
+                    </FormGroup>
+                  </div>
+                </>
+              )}
+              {form.planId && (
+                <div className="col-12">
+                  <p className="small text-muted mb-0">
+                    Recurring pricing from plan: <strong className="text-capitalize">{form.billingCycle}</strong>
+                    {form.monthlyFee > 0 && ` · ₹${Number(form.monthlyFee).toLocaleString()}/mo`}
+                    {form.yearlyFee > 0 && (form.billingCycle === 'quarterly' || form.billingCycle === 'yearly') && ` · ₹${Number(form.yearlyFee).toLocaleString()}/yr`}
+                  </p>
+                </div>
+              )}
             </div>
           </ModalBody>
           <ModalFooter className="border-top pt-3">

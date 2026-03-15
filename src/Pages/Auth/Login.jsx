@@ -69,7 +69,8 @@ const Login = () => {
           <form onSubmit={handleLogin}>
             <div className="mb-3">
               <input
-                type="email"
+                type="text"
+                inputMode="email"
                 placeholder="Email address"
                 className={`form-control ${validationErrors.email ? 'is-invalid' : ''}`}
                 id="email"

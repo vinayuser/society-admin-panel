@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardBody, Spinner, FormGroup, Label, Input, Button } from 'reactstrap';
+import { Card, CardBody, Spinner, FormGroup, Label, Input, Button, Row, Col } from 'reactstrap';
 import axiosInstance from '../../config/axiosInstance';
 import ENDPOINTS from '../../config/apiUrls';
 import { toast } from 'react-toastify';
+
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const SocietySettings = () => {
   const [config, setConfig] = useState(null);
@@ -10,7 +12,7 @@ const SocietySettings = () => {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     address: '',
-    themeColor: '',
+    themeColor: '#1a237e',
     adminContactName: '',
     adminContactPhone: '',
     totalFlats: '',
@@ -29,7 +31,7 @@ const SocietySettings = () => {
           setConfig(data);
           setForm({
             address: data.address || '',
-            themeColor: data.themeColor || '',
+            themeColor: data.themeColor || '#1a237e',
             adminContactName: data.adminContactName || '',
             adminContactPhone: data.adminContactPhone || '',
             totalFlats: data.totalFlats ?? '',
@@ -75,7 +77,7 @@ const SocietySettings = () => {
             setConfig(data);
             setForm({
               address: data.address || '',
-              themeColor: data.themeColor || '',
+              themeColor: data.themeColor || '#1a237e',
               adminContactName: data.adminContactName || '',
               adminContactPhone: data.adminContactPhone || '',
               totalFlats: data.totalFlats ?? '',
@@ -97,174 +99,183 @@ const SocietySettings = () => {
       });
   };
 
+  const logoUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    return `${API_BASE}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
   if (loading) {
     return (
-      <div className="d-flex justify-content-center py-5">
-        <Spinner color="primary" />
+      <div className="d-flex justify-content-center align-items-center py-5">
+        <Spinner color="primary" style={{ width: '2.5rem', height: '2.5rem' }} />
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="page-header">
-        <h1>Society Settings</h1>
+    <div className="society-settings-page">
+      <div className="page-header d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4">
+        <div>
+          <h1 className="h4 mb-1 fw-semibold">Society</h1>
+          <p className="text-muted small mb-0">Update your society profile, contact details and branding. Billing and plan changes are done by the platform admin.</p>
+        </div>
+        <Button color={editing ? 'secondary' : 'primary'} onClick={() => setEditing((v) => !v)} disabled={saving}>
+          {editing ? 'Cancel' : 'Edit settings'}
+        </Button>
       </div>
-      <Card>
-        <CardBody>
-          <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-            <p className="text-muted mb-0">
-              Your society configuration (you can update branding and contact details here).
-              Contact Super Admin to change billing or plan.
-            </p>
-            <Button color={editing ? 'secondary' : 'primary'} size="sm" onClick={() => setEditing((v) => !v)} disabled={saving}>
-              {editing ? 'Cancel' : 'Edit'}
-            </Button>
-          </div>
-          <div className="row">
-            <div className="col-md-6">
-              <FormGroup>
-                <Label className="text-muted small">Address</Label>
-                {editing ? (
-                  <Input
-                    type="textarea"
-                    rows={3}
-                    value={form.address}
-                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                  />
-                ) : (
-                  <Input type="text" plaintext readOnly value={config?.address || '-'} className="border-0 bg-light rounded p-2" />
-                )}
-              </FormGroup>
-            </div>
-            <div className="col-md-6">
-              <FormGroup>
-                <Label className="text-muted small">Theme color</Label>
-                <div className="d-flex align-items-center gap-2">
-                  {config?.themeColor && !editing && (
-                    <span className="rounded border p-2" style={{ width: 36, height: 36, backgroundColor: config.themeColor }} />
-                  )}
+
+      <form onSubmit={handleSave}>
+        {/* Branding */}
+        <Card className="mb-4 shadow-sm border-0 rounded-3">
+          <CardBody className="p-4">
+            <h6 className="text-uppercase text-muted small fw-semibold mb-3">Branding</h6>
+            <Row className="g-3">
+              <Col md={12} lg={4}>
+                <FormGroup className="mb-0">
+                  <Label className="small fw-medium">Logo</Label>
                   {editing ? (
                     <Input
                       type="text"
-                      placeholder="#0088cc"
-                      value={form.themeColor}
-                      onChange={(e) => setForm((f) => ({ ...f, themeColor: e.target.value }))}
-                    />
-                  ) : (
-                    <Input type="text" plaintext readOnly value={config?.themeColor || '-'} className="border-0 bg-light rounded p-2 flex-grow-1" />
-                  )}
-                </div>
-              </FormGroup>
-            </div>
-            <div className="col-md-6">
-              <FormGroup>
-                <Label className="text-muted small">Admin contact name</Label>
-                {editing ? (
-                  <Input
-                    type="text"
-                    value={form.adminContactName}
-                    onChange={(e) => setForm((f) => ({ ...f, adminContactName: e.target.value }))}
-                  />
-                ) : (
-                  <Input type="text" plaintext readOnly value={config?.adminContactName || '-'} className="border-0 bg-light rounded p-2" />
-                )}
-              </FormGroup>
-            </div>
-            <div className="col-md-6">
-              <FormGroup>
-                <Label className="text-muted small">Admin contact phone</Label>
-                {editing ? (
-                  <Input
-                    type="text"
-                    value={form.adminContactPhone}
-                    onChange={(e) => setForm((f) => ({ ...f, adminContactPhone: e.target.value }))}
-                  />
-                ) : (
-                  <Input type="text" plaintext readOnly value={config?.adminContactPhone || '-'} className="border-0 bg-light rounded p-2" />
-                )}
-              </FormGroup>
-            </div>
-            <div className="col-md-6">
-              <FormGroup>
-                <Label className="text-muted small">Total flats (config)</Label>
-                {editing ? (
-                  <Input
-                    type="number"
-                    min={0}
-                    value={form.totalFlats}
-                    onChange={(e) => setForm((f) => ({ ...f, totalFlats: e.target.value }))}
-                  />
-                ) : (
-                  <Input type="text" plaintext readOnly value={config?.totalFlats ?? '-'} className="border-0 bg-light rounded p-2" />
-                )}
-              </FormGroup>
-            </div>
-            <div className="col-md-6">
-              <FormGroup>
-                <Label className="text-muted small">Towers / blocks</Label>
-                {editing ? (
-                  <Input
-                    type="text"
-                    placeholder="A, B, C"
-                    value={form.towersBlocks}
-                    onChange={(e) => setForm((f) => ({ ...f, towersBlocks: e.target.value }))}
-                  />
-                ) : (
-                  <Input
-                    type="text"
-                    plaintext
-                    readOnly
-                    value={Array.isArray(config?.towersBlocks) ? config.towersBlocks.join(', ') : (config?.towersBlocks || '-')}
-                    className="border-0 bg-light rounded p-2"
-                  />
-                )}
-              </FormGroup>
-            </div>
-            {config?.logo && (
-              <div className="col-12">
-                <FormGroup>
-                  <Label className="text-muted small">Logo</Label>
-                  {editing ? (
-                    <Input
-                      type="text"
-                      placeholder="Logo URL"
+                      placeholder="Logo image URL"
                       value={form.logo}
                       onChange={(e) => setForm((f) => ({ ...f, logo: e.target.value }))}
+                      className="mt-1"
                     />
                   ) : (
-                    <div><img src={config.logo} alt="Society logo" style={{ maxHeight: 60 }} /></div>
+                    <div className="mt-2 p-3 bg-light rounded text-center" style={{ minHeight: 80 }}>
+                      {config?.logo ? (
+                        <img src={logoUrl(config.logo)} alt="Society logo" style={{ maxHeight: 56, width: 'auto' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                      ) : (
+                        <span className="text-muted small">No logo set</span>
+                      )}
+                    </div>
                   )}
                 </FormGroup>
-              </div>
-            )}
-            {config?.bannerImage && (
-              <div className="col-12">
-                <FormGroup>
-                  <Label className="text-muted small">Banner</Label>
+              </Col>
+              <Col md={12} lg={4}>
+                <FormGroup className="mb-0">
+                  <Label className="small fw-medium">Theme colour</Label>
+                  {editing ? (
+                    <div className="d-flex align-items-center gap-2 mt-1">
+                      <Input
+                        type="color"
+                        value={form.themeColor || '#1a237e'}
+                        onChange={(e) => setForm((f) => ({ ...f, themeColor: e.target.value }))}
+                        style={{ width: 44, height: 38, padding: 2, cursor: 'pointer' }}
+                      />
+                      <Input
+                        type="text"
+                        value={form.themeColor || ''}
+                        onChange={(e) => setForm((f) => ({ ...f, themeColor: e.target.value }))}
+                        placeholder="#1a237e"
+                        className="flex-grow-1"
+                      />
+                    </div>
+                  ) : (
+                    <div className="d-flex align-items-center gap-2 mt-2">
+                      <span className="rounded border" style={{ width: 28, height: 28, backgroundColor: config?.themeColor || '#1a237e' }} />
+                      <span className="text-muted small">{config?.themeColor || '—'}</span>
+                    </div>
+                  )}
+                </FormGroup>
+              </Col>
+              <Col md={12} lg={4}>
+                <FormGroup className="mb-0">
+                  <Label className="small fw-medium">Banner image</Label>
                   {editing ? (
                     <Input
                       type="text"
-                      placeholder="Banner URL"
+                      placeholder="Banner image URL"
                       value={form.bannerImage}
                       onChange={(e) => setForm((f) => ({ ...f, bannerImage: e.target.value }))}
+                      className="mt-1"
                     />
                   ) : (
-                    <div><img src={config.bannerImage} alt="Banner" style={{ maxHeight: 120 }} className="rounded" /></div>
+                    <div className="mt-2 p-2 bg-light rounded text-center" style={{ minHeight: 60 }}>
+                      {config?.bannerImage ? (
+                        <img src={logoUrl(config.bannerImage)} alt="Banner" style={{ maxHeight: 52, width: '100%', objectFit: 'contain' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                      ) : (
+                        <span className="text-muted small">No banner</span>
+                      )}
+                    </div>
                   )}
                 </FormGroup>
-              </div>
-            )}
-            {editing && (
-              <div className="col-12 mt-3">
-                <Button color="primary" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save changes'}
-                </Button>
-              </div>
-            )}
+              </Col>
+            </Row>
+          </CardBody>
+        </Card>
+
+        {/* Contact & property */}
+        <Card className="mb-4 shadow-sm border-0 rounded-3">
+          <CardBody className="p-4">
+            <h6 className="text-uppercase text-muted small fw-semibold mb-3">Contact & property</h6>
+            <Row className="g-3">
+              <Col md={6}>
+                <FormGroup>
+                  <Label className="small fw-medium">Admin contact name</Label>
+                  {editing ? (
+                    <Input value={form.adminContactName} onChange={(e) => setForm((f) => ({ ...f, adminContactName: e.target.value }))} placeholder="e.g. John Doe" />
+                  ) : (
+                    <div className="py-2 text-break">{config?.adminContactName || '—'}</div>
+                  )}
+                </FormGroup>
+              </Col>
+              <Col md={6}>
+                <FormGroup>
+                  <Label className="small fw-medium">Admin contact phone</Label>
+                  {editing ? (
+                    <Input value={form.adminContactPhone} onChange={(e) => setForm((f) => ({ ...f, adminContactPhone: e.target.value }))} placeholder="e.g. +91 98765 43210" />
+                  ) : (
+                    <div className="py-2 text-break">{config?.adminContactPhone || '—'}</div>
+                  )}
+                </FormGroup>
+              </Col>
+              <Col md={6}>
+                <FormGroup>
+                  <Label className="small fw-medium">Total flats</Label>
+                  {editing ? (
+                    <Input type="number" min={0} value={form.totalFlats} onChange={(e) => setForm((f) => ({ ...f, totalFlats: e.target.value }))} placeholder="0" />
+                  ) : (
+                    <div className="py-2">{config?.totalFlats ?? '—'}</div>
+                  )}
+                </FormGroup>
+              </Col>
+              <Col md={6}>
+                <FormGroup>
+                  <Label className="small fw-medium">Towers / blocks</Label>
+                  {editing ? (
+                    <Input value={form.towersBlocks} onChange={(e) => setForm((f) => ({ ...f, towersBlocks: e.target.value }))} placeholder="A, B, C" />
+                  ) : (
+                    <div className="py-2 text-break">{Array.isArray(config?.towersBlocks) ? config.towersBlocks.join(', ') : (config?.towersBlocks || '—')}</div>
+                  )}
+                </FormGroup>
+              </Col>
+              <Col xs={12}>
+                <FormGroup>
+                  <Label className="small fw-medium">Society address</Label>
+                  {editing ? (
+                    <Input type="textarea" rows={2} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="Full address" />
+                  ) : (
+                    <div className="py-2 text-break">{config?.address || '—'}</div>
+                  )}
+                </FormGroup>
+              </Col>
+            </Row>
+          </CardBody>
+        </Card>
+
+        {editing && (
+          <div className="d-flex justify-content-end gap-2">
+            <Button type="button" color="secondary" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" color="primary" disabled={saving}>
+              {saving ? 'Saving…' : 'Save changes'}
+            </Button>
           </div>
-        </CardBody>
-      </Card>
+        )}
+      </form>
     </div>
   );
 };

@@ -14,6 +14,7 @@ import Home from './Pages/Dashboard/Home';
 import InvitesList from './Pages/Dashboard/Invites/List';
 import SocietiesList from './Pages/Dashboard/Societies/List';
 import BillingList from './Pages/Dashboard/Billing/List';
+import PaymentsPage from './Pages/Dashboard/Payments/PaymentsPage';
 import PlansList from './Pages/Dashboard/Plans/List';
 import AdsList from './Pages/Dashboard/Ads/List';
 import Support from './Pages/Dashboard/Support';
@@ -61,6 +62,7 @@ const App = () => (
         <Route path="dashboard/societies" element={<ProtectedRoute allowedRoles={['super_admin']}><SocietiesList /></ProtectedRoute>} />
         <Route path="dashboard/plans" element={<ProtectedRoute allowedRoles={['super_admin']}><PlansList /></ProtectedRoute>} />
         <Route path="dashboard/billing" element={<ProtectedRoute allowedRoles={['super_admin']}><BillingList /></ProtectedRoute>} />
+        <Route path="dashboard/payments" element={<ProtectedRoute allowedRoles={['super_admin', 'society_admin']}><PaymentsPage /></ProtectedRoute>} />
         <Route path="dashboard/ads" element={<ProtectedRoute allowedRoles={['super_admin']}><AdsList /></ProtectedRoute>} />
         <Route path="dashboard/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />
         <Route path="dashboard/analytics" element={<ProtectedRoute allowedRoles={['super_admin']}><AnalyticsView /></ProtectedRoute>} />

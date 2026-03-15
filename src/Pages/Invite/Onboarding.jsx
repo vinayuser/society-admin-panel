@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Card, CardBody, Button, FormGroup, Label, Input, Spinner } from 'reactstrap';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -15,6 +15,9 @@ function logoPreviewUrl(url) {
 
 const Onboarding = () => {
   const { token } = useParams();
+  const [searchParams] = useSearchParams();
+  const step = searchParams.get('step');
+  const isSetupFeeStep = step === 'setup_fee';
   const [invite, setInvite] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -29,6 +32,8 @@ const Onboarding = () => {
   });
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [paymentStep, setPaymentStep] = useState(null);
+  const [paying, setPaying] = useState(false);
   const logoInputRef = useRef(null);
 
   useEffect(() => {
@@ -51,6 +56,8 @@ const Onboarding = () => {
       })
       .finally(() => setLoading(false));
   }, [token]);
+
+  const onboardingUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
 
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0];
@@ -104,8 +111,22 @@ const Onboarding = () => {
       .post(`${API_URL}/society-invites/${token}/accept`, payload)
       .then((res) => {
         if (res.data?.success) {
-          toast.success('Onboarding completed. You can now sign in.');
-          window.location.href = '/auth/login';
+          const data = res.data.data || {};
+          const billingIds = data.billingIds && data.billingIds.length > 0
+            ? data.billingIds
+            : (data.billingId ? [data.billingId] : []);
+          const totalAmount = data.totalAmount ?? data.setupAmount ?? 0;
+          if (billingIds.length > 0 && totalAmount > 0) {
+            setPaymentStep({
+              billingIds,
+              pendingBilling: data.pendingBilling || [{ amount: totalAmount, label: 'Payment' }],
+              totalAmount,
+            });
+            toast.success('Details saved. Pay the amount below to continue.');
+          } else {
+            toast.success('Onboarding completed. You can now sign in.');
+            window.location.href = '/auth/login';
+          }
         } else {
           toast.error(res.data?.message || 'Failed to complete');
         }
@@ -113,6 +134,79 @@ const Onboarding = () => {
       .catch((err) => toast.error(err.response?.data?.message || 'Failed to complete'))
       .finally(() => setSubmitting(false));
   };
+
+  const handlePayWithRazorpay = () => {
+    const ids = paymentStep?.billingIds?.length ? paymentStep.billingIds : (paymentStep?.billingId ? [paymentStep.billingId] : null);
+    if (!ids?.length || !token) return;
+    setPaying(true);
+    axios
+      .post(`${API_URL}/society-invites/${token}/create-setup-order`, { billingIds: ids })
+      .then((res) => {
+        if (!res.data?.success || !res.data?.data?.orderId || !res.data?.data?.keyId) {
+          toast.error(res.data?.message || 'Could not create payment');
+          setPaying(false);
+          return;
+        }
+        const { orderId, keyId } = res.data.data;
+        if (typeof window.Razorpay === 'undefined') {
+          toast.error('Payment script not loaded. Please refresh and try again.');
+          setPaying(false);
+          return;
+        }
+        const options = {
+          key: keyId,
+          amount: res.data.data.amount,
+          currency: 'INR',
+          name: invite?.societyName || 'Society',
+          description: 'Setup fee',
+          order_id: orderId,
+          handler: function (response) {
+            axios
+              .post(`${API_URL}/society-invites/${token}/verify-payment`, {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+              })
+              .then((ver) => {
+                if (ver.data?.success) {
+                  toast.success('Payment successful. You can sign in now.');
+                  window.location.href = '/auth/login';
+                } else {
+                  toast.error(ver.data?.message || 'Payment verification failed');
+                  setPaying(false);
+                }
+              })
+              .catch(() => {
+                toast.error('Payment verification failed');
+                setPaying(false);
+              });
+          },
+          prefill: { email: form.adminEmail || invite?.email },
+          theme: { color: '#1a237e' },
+        };
+        const rzp = new window.Razorpay(options);
+        rzp.on('payment.failed', () => {
+          toast.error('Payment failed or cancelled');
+          setPaying(false);
+        });
+        rzp.open();
+        setPaying(false);
+      })
+      .catch((err) => {
+        toast.error(err.response?.data?.message || 'Could not start payment');
+        setPaying(false);
+      });
+  };
+
+  useEffect(() => {
+    const needScript = paymentStep || (invite && isSetupFeeStep && invite.setupFee > 0 && !invite.setupFeePaid);
+    if (!needScript) return;
+    if (typeof window.Razorpay !== 'undefined') return;
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    document.body.appendChild(script);
+    return () => { try { document.body.removeChild(script); } catch (_) {} };
+  }, [paymentStep, invite, isSetupFeeStep]);
 
   if (loading) {
     return (
@@ -131,6 +225,141 @@ const Onboarding = () => {
             <Button color="primary" className="mt-3" href="/auth/login">Go to login</Button>
           </CardBody>
         </Card>
+      </div>
+    );
+  }
+
+  // Link 1: Setup fee only (one-time). After pay, show success and link to Link 2.
+  if (invite && isSetupFeeStep) {
+    if (invite.setupFeePaid) {
+      return (
+        <div className="min-vh-100 bg-light py-5">
+          <div className="container" style={{ maxWidth: 480 }}>
+            <Card className="shadow-sm border-0">
+              <CardBody className="p-4 text-center">
+                <h5 className="mb-2 fw-semibold">Setup fee already paid</h5>
+                <p className="text-muted small mb-3">{invite.societyName}</p>
+                <Button color="primary" href={invite.linkOnboarding || `/invite/${token}`}>Continue to onboarding</Button>
+              </CardBody>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+    if (invite.setupFee <= 0) {
+      window.location.href = invite.linkOnboarding || `/invite/${token}`;
+      return (
+        <div className="min-vh-100 d-flex justify-content-center align-items-center bg-light">
+          <Spinner color="primary" />
+        </div>
+      );
+    }
+    const handlePaySetupFee = () => {
+      setPaying(true);
+      axios
+        .post(`${API_URL}/society-invites/${token}/create-setup-fee-order`)
+        .then((res) => {
+          if (!res.data?.success || !res.data?.data?.orderId || !res.data?.data?.keyId) {
+            toast.error(res.data?.message || 'Could not create payment');
+            setPaying(false);
+            return;
+          }
+          const { orderId, keyId } = res.data.data;
+          if (typeof window.Razorpay === 'undefined') {
+            toast.error('Payment script not loaded. Please refresh and try again.');
+            setPaying(false);
+            return;
+          }
+          const options = {
+            key: keyId,
+            amount: res.data.data.amount,
+            currency: 'INR',
+            name: invite.societyName || 'Society',
+            description: 'One-time setup fee',
+            order_id: orderId,
+            handler: function (response) {
+              axios
+                .post(`${API_URL}/society-invites/${token}/verify-payment`, {
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                })
+                .then((ver) => {
+                  if (ver.data?.success) {
+                    toast.success(ver.data?.data?.message || 'Setup fee paid.');
+                    setInvite((prev) => (prev ? { ...prev, setupFeePaid: true } : prev));
+                  } else {
+                    toast.error(ver.data?.message || 'Verification failed');
+                    setPaying(false);
+                  }
+                })
+                .catch(() => {
+                  toast.error('Payment verification failed');
+                  setPaying(false);
+                });
+            },
+            prefill: { email: invite?.email },
+            theme: { color: '#1a237e' },
+          };
+          const rzp = new window.Razorpay(options);
+          rzp.on('payment.failed', () => {
+            toast.error('Payment failed or cancelled');
+            setPaying(false);
+          });
+          rzp.open();
+          setPaying(false);
+        })
+        .catch((err) => {
+          toast.error(err.response?.data?.message || 'Could not start payment');
+          setPaying(false);
+        });
+    };
+    return (
+      <div className="min-vh-100 bg-light py-5">
+        <div className="container" style={{ maxWidth: 480 }}>
+          <Card className="shadow-sm border-0">
+            <CardBody className="p-4 text-center">
+              <h5 className="mb-2 fw-semibold">Pay setup fee (one-time)</h5>
+              <p className="text-muted small mb-3">{invite.societyName}</p>
+              <p className="h4 mb-4">₹{Number(invite.setupFee || 0).toLocaleString()}</p>
+              <Button color="primary" size="lg" className="w-100 mb-2" onClick={handlePaySetupFee} disabled={paying}>
+                {paying ? 'Opening…' : 'Pay with Razorpay'}
+              </Button>
+              <p className="small text-muted mb-0">
+                <a href={invite.linkOnboarding || `/invite/${token}`} className="text-muted">Skip to onboarding</a>
+              </p>
+            </CardBody>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (paymentStep) {
+    const total = paymentStep.totalAmount ?? paymentStep.setupAmount ?? 0;
+    return (
+      <div className="min-vh-100 bg-light py-5">
+        <div className="container" style={{ maxWidth: 480 }}>
+          <Card className="shadow-sm border-0">
+            <CardBody className="p-4 text-center">
+              <h5 className="mb-2 fw-semibold">Complete payment</h5>
+              <p className="text-muted small mb-3">{invite?.societyName}</p>
+              {paymentStep.pendingBilling?.length > 0 ? (
+                <div className="text-start small mb-3">
+                  {paymentStep.pendingBilling.map((item, i) => (
+                    <div key={i} className="d-flex justify-content-between"><span>{item.label}</span><span>₹{Number(item.amount).toLocaleString()}</span></div>
+                  ))}
+                </div>
+              ) : null}
+              <p className="h4 mb-4">₹{Number(total).toLocaleString()}</p>
+              <Button color="primary" size="lg" className="w-100 mb-2" onClick={handlePayWithRazorpay} disabled={paying}>
+                {paying ? 'Opening…' : 'Pay with Razorpay'}
+              </Button>
+              <p className="small text-muted mb-0">
+                <a href="/auth/login" className="text-muted">I'll pay later</a>
+              </p>
+            </CardBody>
+          </Card>
+        </div>
       </div>
     );
   }
