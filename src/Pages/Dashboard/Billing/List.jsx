@@ -13,12 +13,23 @@ import {
   FormGroup,
   Label,
   Input,
+  Pagination,
+  PaginationItem,
+  PaginationLink,
 } from 'reactstrap';
 import axiosInstance from '../../../config/axiosInstance';
 import ENDPOINTS from '../../../config/apiUrls';
 import { toast } from 'react-toastify';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const listFromResponse = (res) => {
+  const raw = res?.data;
+  if (!raw || typeof raw !== 'object') return [];
+  if (Array.isArray(raw.data)) return raw.data;
+  if (raw.Collection && Array.isArray(raw.Collection.data)) return raw.Collection.data;
+  return [];
+};
 
 const BillingList = () => {
   const [list, setList] = useState([]);
@@ -30,6 +41,8 @@ const BillingList = () => {
   const [generateYear, setGenerateYear] = useState(new Date().getFullYear());
   const [generateMonth, setGenerateMonth] = useState(new Date().getMonth() + 1);
   const [generating, setGenerating] = useState(false);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
+  const [listRefresh, setListRefresh] = useState(0);
   const [createForm, setCreateForm] = useState({
     societyId: '',
     type: 'monthly',
@@ -42,27 +55,48 @@ const BillingList = () => {
   });
 
   const fetchList = useCallback(() => {
+    const { page, limit } = pagination;
     setLoading(true);
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', String(limit));
     axiosInstance
-      .get(ENDPOINTS.BILLING.LIST)
+      .get(`${ENDPOINTS.BILLING.LIST}?${params.toString()}`)
       .then((res) => {
-        const data = res.data?.data ?? [];
+        const data = listFromResponse(res);
         setList(Array.isArray(data) ? data : []);
+        const p = res.data?.pagination ?? {};
+        const total = res.data?.total ?? p.total ?? 0;
+        setPagination((prev) => ({
+          ...prev,
+          page: p.page ?? page,
+          limit: p.limit ?? prev.limit,
+          total: Number(total) || 0,
+        }));
       })
-      .catch(() => setList([]))
+      .catch(() => {
+        toast.error('Failed to load invoices');
+        setList([]);
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [pagination.page, pagination.limit, listRefresh]);
 
   useEffect(() => {
     fetchList();
   }, [fetchList]);
 
+  const limitNum = Math.max(1, Number(pagination.limit) || 20);
+  const totalNum = Number(pagination.total) || 0;
+  const totalPages = Math.max(1, Math.ceil(totalNum / limitNum));
+  const start = totalNum === 0 ? 0 : (pagination.page - 1) * limitNum + 1;
+  const end = Math.min(pagination.page * limitNum, totalNum);
+
   useEffect(() => {
     if (createOpen) {
       axiosInstance
-        .get(ENDPOINTS.SOCIETIES.LIST)
+        .get(`${ENDPOINTS.SOCIETIES.LIST}?page=1&limit=100`)
         .then((res) => {
-          const data = res.data?.data ?? [];
+          const data = listFromResponse(res);
           setSocieties(Array.isArray(data) ? data : []);
           if (data.length && !createForm.societyId) {
             setCreateForm((f) => ({ ...f, societyId: String(data[0].id) }));
@@ -80,7 +114,8 @@ const BillingList = () => {
         if (res.data?.success) {
           toast.success(res.data?.data?.message || 'Invoices generated');
           setGenerateOpen(false);
-          fetchList();
+          setPagination((p) => ({ ...p, page: 1 }));
+          setListRefresh((n) => n + 1);
         } else {
           toast.error(res.data?.message || 'Failed to generate');
         }
@@ -135,7 +170,8 @@ const BillingList = () => {
             dueDate: '',
             notes: '',
           });
-          fetchList();
+          setPagination((p) => ({ ...p, page: 1 }));
+          setListRefresh((n) => n + 1);
         } else {
           toast.error(res.data?.message || 'Failed to create invoice');
         }
@@ -148,10 +184,13 @@ const BillingList = () => {
 
   return (
     <div>
-      <div className="page-header mb-3">
-        <h1>Billing / Invoices</h1>
-        <p className="text-muted small mb-0">Generate recurring invoices for all societies at once by month. No need to create each invoice manually.</p>
+      <div className="page-header d-flex justify-content-between align-items-center flex-wrap">
+        <div>
+          <h1 className="mb-0">Billing / Invoices</h1>
+          <p className="text-muted small mb-0 mt-1">Generate recurring invoices for all societies at once by month. Society admins see their invoices under Payments.</p>
+        </div>
       </div>
+
       <Card className="mb-3 border-primary">
         <CardBody className="py-3">
           <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
@@ -165,11 +204,13 @@ const BillingList = () => {
           </div>
         </CardBody>
       </Card>
-      <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-        <span className="small text-muted">All invoices (generated + one-off). Society admins see their invoices and payment reminders in Dashboard → Payments.</span>
+
+      <div className="d-flex justify-content-between align-items-center flex-nowrap gap-2 mb-2 overflow-x-auto">
+        <span className="small text-muted text-nowrap flex-shrink-0">All invoices (generated + one-off).</span>
         <Button
           color="outline-secondary"
           size="sm"
+          className="flex-shrink-0"
           onClick={() => {
             setCreateForm({
               societyId: '',
@@ -187,35 +228,99 @@ const BillingList = () => {
           Create one-off invoice
         </Button>
       </div>
+
       <Card className="table-card">
-        <CardBody>
+        <CardBody className="p-0">
+          <div className="px-3 py-2 border-bottom d-flex flex-nowrap justify-content-between align-items-center gap-2 overflow-x-auto">
+            <div className="small text-muted text-nowrap flex-shrink-0">
+              {loading ? 'Loading invoices…' : (
+                <>Showing {totalNum === 0 ? 0 : start}–{end} of {totalNum} invoice{totalNum !== 1 ? 's' : ''}</>
+              )}
+            </div>
+            <div className="d-flex align-items-center gap-2 flex-shrink-0">
+              <Label className="small text-muted mb-0 text-nowrap">Per page</Label>
+              <Input
+                type="select"
+                className="form-select form-select-sm"
+                style={{ width: 'auto', minWidth: 72 }}
+                value={pagination.limit}
+                onChange={(e) => {
+                  const limit = Number(e.target.value);
+                  setPagination((p) => ({ ...p, limit, page: 1 }));
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </Input>
+            </div>
+          </div>
           {loading ? (
-            <div className="d-flex justify-content-center py-5"><Spinner /></div>
+            <div className="d-flex justify-content-center py-5"><Spinner color="primary" /></div>
           ) : (
-            <Table responsive hover>
-              <thead>
-                <tr>
-                  <th>Society</th>
-                  <th>Invoice</th>
-                  <th>Type</th>
-                  <th>Amount</th>
-                  <th>Billing Date</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.societyName || row.societyId}</td>
-                    <td>{row.invoiceNumber}</td>
-                    <td className="text-capitalize">{row.type}</td>
-                    <td>₹{Number(row.amount || 0).toLocaleString()}</td>
-                    <td>{row.billingDate ? new Date(row.billingDate).toLocaleDateString() : '-'}</td>
-                    <td><Badge color={row.paymentStatus === 'paid' ? 'success' : 'warning'}>{row.paymentStatus}</Badge></td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+            <>
+              <div className="table-responsive">
+                <Table hover size="sm" className="mb-0 align-middle">
+                  <thead className="table-light">
+                    <tr>
+                      <th>Society</th>
+                      <th>Invoice</th>
+                      <th>Type</th>
+                      <th className="text-end">Amount</th>
+                      <th>Billing date</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center text-muted py-5">No invoices yet.</td>
+                      </tr>
+                    ) : (
+                      list.map((row) => (
+                        <tr key={row.id}>
+                          <td>{row.societyName || row.societyId}</td>
+                          <td className="font-monospace small">{row.invoiceNumber}</td>
+                          <td className="text-capitalize">{row.type}</td>
+                          <td className="text-end">₹{Number(row.amount || 0).toLocaleString()}</td>
+                          <td className="text-nowrap small">{row.billingDate ? new Date(row.billingDate).toLocaleDateString() : '–'}</td>
+                          <td>
+                            <Badge color={row.paymentStatus === 'paid' ? 'success' : row.paymentStatus === 'overdue' ? 'danger' : 'warning'}>
+                              {row.paymentStatus}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center px-3 py-2 border-top gap-2">
+                  <span className="small text-muted order-2 order-sm-1 text-center text-sm-start">
+                    Page {pagination.page} of {totalPages}
+                  </span>
+                  <Pagination size="sm" className="mb-0 justify-content-center justify-content-sm-end order-1 order-sm-2 flex-wrap">
+                    <PaginationItem disabled={pagination.page <= 1}>
+                      <PaginationLink previous tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: prev.page - 1 }))} />
+                    </PaginationItem>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const p = pagination.page <= 3 ? i + 1 : Math.max(1, pagination.page - 2 + i);
+                      if (p > totalPages) return null;
+                      return (
+                        <PaginationItem key={p} active={p === pagination.page}>
+                          <PaginationLink tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: p }))}>{p}</PaginationLink>
+                        </PaginationItem>
+                      );
+                    })}
+                    <PaginationItem disabled={pagination.page >= totalPages}>
+                      <PaginationLink next tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))} />
+                    </PaginationItem>
+                  </Pagination>
+                </div>
+              )}
+            </>
           )}
         </CardBody>
       </Card>

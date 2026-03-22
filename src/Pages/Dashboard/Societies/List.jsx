@@ -1,8 +1,33 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardBody, Table, Spinner, Badge, Button, Modal, ModalHeader, ModalBody, ModalFooter, FormGroup, Label, Input, InputGroup, Row, Col } from 'reactstrap';
+import {
+  Card,
+  CardBody,
+  Table,
+  Spinner,
+  Badge,
+  Button,
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  FormGroup,
+  Label,
+  Input,
+  InputGroup,
+  Row,
+  Col,
+  Pagination,
+  PaginationItem,
+  PaginationLink,
+} from 'reactstrap';
 import axiosInstance from '../../../config/axiosInstance';
 import ENDPOINTS from '../../../config/apiUrls';
 import { toast } from 'react-toastify';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
 
 const statusBadge = (status) => {
   if (status === 'active') return <Badge color="success">Active</Badge>;
@@ -35,17 +60,53 @@ const SocietiesList = () => {
   const [detailModal, setDetailModal] = useState(null);
   const [detailData, setDetailData] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
+  const [listRefresh, setListRefresh] = useState(0);
+
+  const listFromResponse = (res) => {
+    const raw = res?.data;
+    if (!raw || typeof raw !== 'object') return [];
+    if (Array.isArray(raw.data)) return raw.data;
+    if (raw.Collection && Array.isArray(raw.Collection.data)) return raw.Collection.data;
+    return [];
+  };
+
+  const fetchList = useCallback(() => {
+    const { page, limit } = pagination;
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', String(limit));
+    axiosInstance
+      .get(`${ENDPOINTS.SOCIETIES.LIST}?${params.toString()}`)
+      .then((res) => {
+        const data = listFromResponse(res);
+        setList(Array.isArray(data) ? data : []);
+        const p = res.data?.pagination ?? {};
+        const total = res.data?.total ?? p.total ?? 0;
+        setPagination((prev) => ({
+          ...prev,
+          page: p.page ?? page,
+          limit: p.limit ?? prev.limit,
+          total: Number(total) || 0,
+        }));
+      })
+      .catch(() => {
+        toast.error('Failed to load societies');
+        setList([]);
+      })
+      .finally(() => setLoading(false));
+  }, [pagination.page, pagination.limit, listRefresh]);
 
   useEffect(() => {
-    axiosInstance
-      .get(ENDPOINTS.SOCIETIES.LIST)
-      .then((res) => {
-        const data = res.data?.data ?? [];
-        setList(Array.isArray(data) ? data : []);
-      })
-      .catch(() => setList([]))
-      .finally(() => setLoading(false));
-  }, []);
+    fetchList();
+  }, [fetchList]);
+
+  const limitNum = Math.max(1, Number(pagination.limit) || 20);
+  const totalNum = Number(pagination.total) || 0;
+  const totalPages = Math.max(1, Math.ceil(totalNum / limitNum));
+  const start = totalNum === 0 ? 0 : (pagination.page - 1) * limitNum + 1;
+  const end = Math.min(pagination.page * limitNum, totalNum);
 
   const openPayments = useCallback((row) => {
     setPaymentsModal(row);
@@ -130,21 +191,16 @@ const SocietiesList = () => {
         if (res.data?.success) {
           toast.success('Society updated');
           setEditing(null);
-          setLoading(true);
-          return axiosInstance.get(ENDPOINTS.SOCIETIES.LIST).then((r) => {
-            const data = r.data?.data ?? [];
-            setList(Array.isArray(data) ? data : []);
-          });
+          setListRefresh((n) => n + 1);
+        } else {
+          toast.error(res.data?.message || 'Failed to update society');
         }
-        toast.error(res.data?.message || 'Failed to update society');
-        return null;
       })
       .catch((err) => {
         toast.error(err.response?.data?.message || 'Failed to update society');
       })
       .finally(() => {
         setSaving(false);
-        setLoading(false);
       });
   };
 
@@ -155,126 +211,235 @@ const SocietiesList = () => {
       .then((res) => {
         if (res.data?.success) {
           toast.success(`Status changed to ${status}`);
-          setLoading(true);
-          return axiosInstance.get(ENDPOINTS.SOCIETIES.LIST).then((r) => {
-            const data = r.data?.data ?? [];
-            setList(Array.isArray(data) ? data : []);
-          });
+          setListRefresh((n) => n + 1);
+        } else {
+          toast.error(res.data?.message || 'Failed to change status');
         }
-        toast.error(res.data?.message || 'Failed to change status');
-        return null;
       })
       .catch((err) => {
         toast.error(err.response?.data?.message || 'Failed to change status');
       })
       .finally(() => {
         setUpdatingStatusId(null);
-        setLoading(false);
       });
   };
 
+  const recurringLabel = (row) => {
+    const cycle = (row.billingCycle || 'monthly').toLowerCase();
+    if (cycle === 'yearly') {
+      return `₹${Number((row.yearlyFee ?? (row.monthlyFee * 12)) || 0).toLocaleString()}/yr`;
+    }
+    if (cycle === 'quarterly') {
+      return `₹${Number(row.yearlyFee ? row.yearlyFee / 4 : (row.monthlyFee * 3 || 0)).toLocaleString()}/qtr`;
+    }
+    return `₹${Number(row.monthlyFee || 0).toLocaleString()}/mo`;
+  };
+
   return (
-    <div className="SocietiesList">
-      <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <div className="page-header d-flex justify-content-between align-items-center flex-wrap">
         <div>
-          <h1 className="h3 mb-1 fw-semibold">Societies</h1>
-          <p className="text-muted small mb-0">Manage societies, view details, payments, and billing.</p>
+          <h1 className="mb-0">Societies</h1>
+          <p className="text-muted small mb-0 mt-1">Manage societies, view details, payments, and billing.</p>
         </div>
-        {!loading && (
-          <Badge color="light" className="text-dark border px-3 py-2 fs-6">
-            {list.length} {list.length === 1 ? 'society' : 'societies'}
-          </Badge>
-        )}
       </div>
 
-      <Card className="shadow-sm border-0 rounded-3 overflow-hidden">
+      <Card className="table-card">
         <CardBody className="p-0">
+          <div className="px-3 py-2 border-bottom d-flex flex-nowrap justify-content-between align-items-center gap-2 overflow-x-auto">
+            <div className="small text-muted text-nowrap flex-shrink-0">
+              {loading ? 'Loading societies…' : (
+                <>
+                  Showing {totalNum === 0 ? 0 : start}–{end} of {totalNum} {totalNum !== 1 ? 'societies' : 'society'}
+                </>
+              )}
+            </div>
+            <div className="d-flex align-items-center gap-2 flex-shrink-0">
+              <Label className="small text-muted mb-0 text-nowrap">Per page</Label>
+              <Input
+                type="select"
+                className="form-select form-select-sm"
+                style={{ width: 'auto', minWidth: 72 }}
+                value={pagination.limit}
+                onChange={(e) => {
+                  const limit = Number(e.target.value);
+                  setPagination((p) => ({ ...p, limit, page: 1 }));
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </Input>
+            </div>
+          </div>
           {loading ? (
-            <div className="d-flex justify-content-center align-items-center py-5">
+            <div className="d-flex justify-content-center py-5">
               <Spinner color="primary" />
             </div>
-          ) : list.length === 0 ? (
-            <div className="text-center py-5 px-3">
-              <p className="text-muted mb-2">No societies yet.</p>
-              <p className="small text-muted mb-0">Societies appear here after an invite is accepted and onboarding is completed.</p>
-            </div>
           ) : (
-            <div className="table-responsive">
-              <Table hover className="mb-0 align-middle">
-                <thead className="table-light">
-                  <tr>
-                    <th className="border-0 ps-4 pt-3 pb-3 fw-semibold">Society</th>
-                    <th className="border-0 pt-3 pb-3 fw-semibold">Flats</th>
-                    <th className="border-0 pt-3 pb-3 fw-semibold">Plan & billing</th>
-                    <th className="border-0 pt-3 pb-3 fw-semibold">Status</th>
-                    <th className="border-0 pt-3 pb-3 fw-semibold">Created</th>
-                    <th className="border-0 pe-4 pt-3 pb-3 fw-semibold text-end">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((row) => (
-                    <tr key={row.id}>
-                      <td className="ps-4 py-3">
-                        <div className="fw-medium">{row.name}</div>
-                        <code className="small text-muted">{row.alias}</code>
-                      </td>
-                      <td className="py-3">{row.flatCount ?? '—'}</td>
-                      <td className="py-3">
-                        <span className="text-capitalize">{row.planType || '—'}</span>
-                        <span className="text-muted mx-1">·</span>
-                        <span className="text-capitalize">{row.billingCycle || 'monthly'}</span>
-                        <div className="small text-muted mt-0">
-                          {row.billingCycle === 'yearly'
-                            ? `₹${Number((row.yearlyFee ?? (row.monthlyFee * 12)) || 0).toLocaleString()}/yr`
-                            : row.billingCycle === 'quarterly'
-                            ? `₹${Number(row.yearlyFee ? row.yearlyFee / 4 : (row.monthlyFee * 3 || 0)).toLocaleString()}/qtr`
-                            : `₹${Number(row.monthlyFee || 0).toLocaleString()}/mo`}
-                        </div>
-                      </td>
-                      <td className="py-3">{statusBadge(row.status)}</td>
-                      <td className="py-3 small text-muted">
-                        {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '—'}
-                      </td>
-                      <td className="pe-4 py-3 text-end">
-                        <div className="d-flex flex-wrap justify-content-end gap-1">
-                          <Button size="sm" color="secondary" outline onClick={() => openDetail(row)}>
-                            Details
-                          </Button>
-                          <Button size="sm" color="info" outline onClick={() => openPayments(row)}>
-                            Payments
-                          </Button>
-                          <Button size="sm" color="primary" outline onClick={() => openEdit(row)}>
-                            Edit billing
-                          </Button>
-                          {row.status !== 'active' && (
-                            <Button
-                              size="sm"
-                              color="success"
-                              outline
-                              disabled={updatingStatusId === row.id}
-                              onClick={() => updateStatus(row, 'active')}
-                            >
-                              {updatingStatusId === row.id ? '…' : 'Activate'}
-                            </Button>
-                          )}
-                          {row.status === 'active' && (
-                            <Button
-                              size="sm"
-                              color="warning"
-                              outline
-                              disabled={updatingStatusId === row.id}
-                              onClick={() => updateStatus(row, 'suspended')}
-                            >
-                              {updatingStatusId === row.id ? '…' : 'Suspend'}
-                            </Button>
-                          )}
-                        </div>
-                      </td>
+            <>
+              <div className="table-responsive">
+                <Table hover size="sm" className="mb-0 align-middle">
+                  <thead className="table-light">
+                    <tr>
+                      <th>Society</th>
+                      <th>Address</th>
+                      <th>Contact</th>
+                      <th className="text-end">Flats</th>
+                      <th>Plan</th>
+                      <th>Recurring</th>
+                      <th>Setup</th>
+                      <th>Status</th>
+                      <th>Created</th>
+                      <th className="text-end">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {list.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="text-center text-muted py-5">
+                          <p className="mb-1">No societies yet.</p>
+                          <p className="small mb-0">Societies appear here after an invite is accepted and onboarding is completed.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      list.map((row) => (
+                        <tr key={row.id}>
+                          <td className="fw-medium text-nowrap">
+                            <div>{row.name}</div>
+                            <code className="small text-muted">{row.alias}</code>
+                          </td>
+                          <td className="text-muted small" style={{ maxWidth: 200 }} title={row.address || ''}>
+                            {row.address ? (row.address.length > 48 ? `${row.address.slice(0, 48)}…` : row.address) : '–'}
+                          </td>
+                          <td className="small">
+                            <div className="text-break">{row.email || '–'}</div>
+                            {row.phone ? <div className="text-muted">{row.phone}</div> : null}
+                          </td>
+                          <td className="text-end">{row.flatCount ?? '—'}</td>
+                          <td className="small text-capitalize">{row.planType || '—'}</td>
+                          <td className="small text-nowrap">
+                            <span className="text-capitalize">{(row.billingCycle || 'monthly').replace(/_/g, ' ')}</span>
+                            <span className="text-muted"> · </span>
+                            {recurringLabel(row)}
+                            {row.yearlyFee > 0 && row.billingCycle !== 'yearly' && (
+                              <span className="d-block text-muted">₹{Number(row.yearlyFee).toLocaleString()}/yr</span>
+                            )}
+                          </td>
+                          <td className="small text-nowrap">
+                            {Number(row.setupFee) > 0 ? `₹${Number(row.setupFee).toLocaleString()}` : '–'}
+                          </td>
+                          <td>{statusBadge(row.status)}</td>
+                          <td className="text-nowrap small">{row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '—'}</td>
+                          <td className="text-end text-nowrap">
+                            <div className="d-inline-flex flex-nowrap justify-content-end align-items-center gap-1 text-nowrap">
+                              <button
+                                type="button"
+                                className="btn btn-outline-secondary btn-sm p-1 lh-1"
+                                title="Society details"
+                                aria-label="Society details"
+                                onClick={() => openDetail(row)}
+                              >
+                                <InfoOutlinedIcon fontSize="small" />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline-info btn-sm p-1 lh-1"
+                                title="Payments & invoices"
+                                aria-label="Payments and invoices"
+                                onClick={() => openPayments(row)}
+                              >
+                                <ReceiptLongOutlinedIcon fontSize="small" />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline-primary btn-sm p-1 lh-1"
+                                title="Edit billing"
+                                aria-label="Edit billing"
+                                onClick={() => openEdit(row)}
+                              >
+                                <EditOutlinedIcon fontSize="small" />
+                              </button>
+                              {row.status !== 'active' && (
+                                updatingStatusId === row.id ? (
+                                  <span className="d-inline-flex p-1" aria-hidden="true">
+                                    <span className="spinner-border spinner-border-sm text-success" role="status" />
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-success btn-sm p-1 lh-1"
+                                    title="Activate society"
+                                    aria-label="Activate society"
+                                    onClick={() => updateStatus(row, 'active')}
+                                  >
+                                    <CheckCircleOutlineIcon fontSize="small" />
+                                  </button>
+                                )
+                              )}
+                              {row.status === 'active' && (
+                                updatingStatusId === row.id ? (
+                                  <span className="d-inline-flex p-1" aria-hidden="true">
+                                    <span className="spinner-border spinner-border-sm text-warning" role="status" />
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-warning btn-sm p-1 lh-1"
+                                    title="Suspend society"
+                                    aria-label="Suspend society"
+                                    onClick={() => updateStatus(row, 'suspended')}
+                                  >
+                                    <PauseCircleOutlineIcon fontSize="small" />
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center px-3 py-2 border-top gap-2">
+                  <span className="small text-muted order-2 order-sm-1 text-center text-sm-start">
+                    Page {pagination.page} of {totalPages}
+                  </span>
+                  <Pagination size="sm" className="mb-0 justify-content-center justify-content-sm-end order-1 order-sm-2 flex-wrap">
+                    <PaginationItem disabled={pagination.page <= 1}>
+                      <PaginationLink
+                        previous
+                        tag="button"
+                        type="button"
+                        onClick={() => setPagination((prev) => ({ ...prev, page: prev.page - 1 }))}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const p = pagination.page <= 3 ? i + 1 : Math.max(1, pagination.page - 2 + i);
+                      if (p > totalPages) return null;
+                      return (
+                        <PaginationItem key={p} active={p === pagination.page}>
+                          <PaginationLink tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: p }))}>
+                            {p}
+                          </PaginationLink>
+                        </PaginationItem>
+                      );
+                    })}
+                    <PaginationItem disabled={pagination.page >= totalPages}>
+                      <PaginationLink
+                        next
+                        tag="button"
+                        type="button"
+                        onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))}
+                      />
+                    </PaginationItem>
+                  </Pagination>
+                </div>
+              )}
+            </>
           )}
         </CardBody>
       </Card>

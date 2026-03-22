@@ -97,7 +97,7 @@ export default function FlatDetail() {
     if (!id) return;
     setLoadingTab(true);
     axiosInstance.get(ENDPOINTS.FLATS.MEMBERS(id))
-      .then((res) => setMembers(res.data?.data ?? []))
+      .then((res) => setMembers(res.data?.data ?? res.data?.Collection?.data ?? []))
       .catch(() => setMembers([]))
       .finally(() => setLoadingTab(false));
   };
@@ -344,30 +344,27 @@ export default function FlatDetail() {
               {loadingTab ? <Spinner /> : (
                 <Table responsive>
                   <thead>
-                    <tr><th>Name</th><th>Phone</th><th>Email</th><th>Role</th><th>Source</th><th></th></tr>
+                    <tr><th>Name</th><th>Phone</th><th>Email</th><th>Role</th><th></th></tr>
                   </thead>
                   <tbody>
-                    {members.map((m) => (
+                    {members.map((m) => {
+                      const mid = m.memberId ?? m.id;
+                      return (
                       <tr key={m.id}>
                         <td>{m.name}</td>
                         <td>{m.phone || '—'}</td>
                         <td>{m.email || '—'}</td>
                         <td><Badge color="light" className="text-dark">{m.role?.replace(/_/g, ' ') || '—'}</Badge></td>
                         <td>
-                          {m.source === 'directory' ? <Badge color="info">Directory</Badge> : <Badge color="secondary">Flat</Badge>}
-                        </td>
-                        <td>
-                          {m.source === 'directory' && m.memberId ? (
-                            <Button size="sm" color="info" onClick={() => navigate('/admin/dashboard/members/' + m.memberId)}>View profile</Button>
-                          ) : (
-                            <Button size="sm" color="danger" outline onClick={() => handleDeleteMember(m.id)} disabled={deletingMemberId === m.id}>
-                              {deletingMemberId === m.id ? '…' : 'Remove'}
-                            </Button>
-                          )}
+                          <Button size="sm" color="info" className="me-1" onClick={() => navigate('/admin/dashboard/members/' + mid)}>View profile</Button>
+                          <Button size="sm" color="danger" outline onClick={() => handleDeleteMember(m.id)} disabled={deletingMemberId === m.id}>
+                            {deletingMemberId === m.id ? '…' : 'Remove'}
+                          </Button>
                         </td>
                       </tr>
-                    ))}
-                    {!members.length && <tr><td colSpan={6} className="text-muted">No members. Add from Members module (with this flat) or use &quot;Add flat member&quot; above.</td></tr>}
+                      );
+                    })}
+                    {!members.length && <tr><td colSpan={5} className="text-muted">No members for this flat. Add one above or assign a flat from the Members module.</td></tr>}
                   </tbody>
                 </Table>
               )}

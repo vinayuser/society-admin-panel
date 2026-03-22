@@ -7,6 +7,27 @@ const axiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+/**
+ * List endpoints return { Collection: { data }, Pagination: { current_page, per_page, total_records }, ...extras }.
+ * Map to the legacy shape the admin UI already uses: { data, pagination: { page, limit, total }, total, ...extras }.
+ */
+function normalizeListEnvelope(payload) {
+  if (!payload || typeof payload !== 'object' || payload.Collection == null || payload.Pagination == null) {
+    return payload;
+  }
+  const { Collection, Pagination, ...rest } = payload;
+  const list = Array.isArray(Collection.data) ? Collection.data : [];
+  const page = Pagination.current_page ?? 1;
+  const limit = Pagination.per_page ?? 20;
+  const total = Number(Pagination.total_records) || 0;
+  return {
+    ...rest,
+    data: list,
+    pagination: { page, limit, total },
+    total,
+  };
+}
+
 export const setAuthToken = (token) => {
   if (token) {
     axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -15,8 +36,20 @@ export const setAuthToken = (token) => {
   }
 };
 
+axiosInstance.interceptors.request.use((config) => {
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+  return config;
+});
+
 axiosInstance.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    if (res.data && typeof res.data === 'object') {
+      res.data = normalizeListEnvelope(res.data);
+    }
+    return res;
+  },
   async (err) => {
     const original = err.config;
     if (err.response?.status === 401 && !original._retry) {

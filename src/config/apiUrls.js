@@ -136,7 +136,9 @@ const ENDPOINTS = {
   ADS: {
     LIST: `${API_PREFIX}/ads`,
     CREATE: `${API_PREFIX}/ads`,
+    UPDATE: (id) => `${API_PREFIX}/ads/${id}`,
     DELETE: (id) => `${API_PREFIX}/ads/${id}`,
+    UPLOAD_MEDIA: `${API_PREFIX}/ads/upload-media`,
   },
   VENDORS: {
     LIST: `${API_PREFIX}/vendors`,

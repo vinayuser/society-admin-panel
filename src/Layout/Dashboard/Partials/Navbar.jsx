@@ -16,6 +16,8 @@ const Navbar = ({ setIsSidebarOpenMobile, isCollapsed, onToggleSidebar }) => {
   const [isDropdownOpen, setDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  /** From API when list is paginated; falls back to counting loaded rows */
+  const [serverUnreadCount, setServerUnreadCount] = useState(null);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const dropdownRef = useRef(null);
   const notifRef = useRef(null);
@@ -27,6 +29,7 @@ const Navbar = ({ setIsSidebarOpenMobile, isCollapsed, onToggleSidebar }) => {
       .then((res) => {
         if (res.data?.success) {
           setNotifications(res.data.data || []);
+          setServerUnreadCount(typeof res.data.unreadCount === 'number' ? res.data.unreadCount : null);
         }
       })
       .catch(() => setNotifications([]))
@@ -66,7 +69,8 @@ const Navbar = ({ setIsSidebarOpenMobile, isCollapsed, onToggleSidebar }) => {
     logoutUser();
   };
 
-  const unreadCount = notifications.filter((n) => !n.readAt).length;
+  const unreadCount =
+    serverUnreadCount != null ? serverUnreadCount : notifications.filter((n) => !n.readAt).length;
   const initial = (user?.name || user?.email || 'U').charAt(0).toUpperCase();
 
   return (

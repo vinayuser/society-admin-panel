@@ -14,12 +14,23 @@ import {
   Col,
   Label,
   Input,
+  Pagination,
+  PaginationItem,
+  PaginationLink,
 } from 'reactstrap';
 import axiosInstance from '../../../config/axiosInstance';
 import ENDPOINTS from '../../../config/apiUrls';
 import { toast } from 'react-toastify';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const listFromResponse = (res) => {
+  const raw = res?.data;
+  if (!raw || typeof raw !== 'object') return [];
+  if (Array.isArray(raw.data)) return raw.data;
+  if (raw.Collection && Array.isArray(raw.Collection.data)) return raw.Collection.data;
+  return [];
+};
 
 const PaymentsList = () => {
   const [year, setYear] = useState(new Date().getFullYear());
@@ -32,33 +43,54 @@ const PaymentsList = () => {
   const [generateYear, setGenerateYear] = useState(new Date().getFullYear());
   const [generateMonth, setGenerateMonth] = useState(new Date().getMonth() + 1);
   const [generating, setGenerating] = useState(false);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
+  const [listRefresh, setListRefresh] = useState(0);
 
-  const fetchOverview = useCallback((y) => {
+  const fetchOverview = useCallback(() => {
+    const { page, limit } = pagination;
     setLoading(true);
+    const params = new URLSearchParams();
+    params.set('year', String(year));
+    params.set('page', String(page));
+    params.set('limit', String(limit));
     axiosInstance
-      .get(ENDPOINTS.PAYMENTS.OVERVIEW + '?year=' + (y || year))
+      .get(`${ENDPOINTS.PAYMENTS.OVERVIEW}?${params.toString()}`)
       .then((res) => {
-        if (res.data?.success) {
-          setOverview({ data: res.data.data || [], year: res.data.year || y || year });
-        }
+        const data = listFromResponse(res);
+        const y = res.data?.year ?? year;
+        const p = res.data?.pagination ?? {};
+        const total = res.data?.total ?? p.total ?? 0;
+        setOverview({ data: Array.isArray(data) ? data : [], year: y });
+        setPagination((prev) => ({
+          ...prev,
+          page: p.page ?? page,
+          limit: p.limit ?? prev.limit,
+          total: Number(total) || 0,
+        }));
       })
       .catch(() => {
         toast.error('Failed to load payments');
         setOverview((prev) => ({ ...prev, data: [] }));
       })
       .finally(() => setLoading(false));
-  }, [year]);
+  }, [year, pagination.page, pagination.limit, listRefresh]);
 
   useEffect(() => {
-    fetchOverview(year);
-  }, [year, fetchOverview]);
+    fetchOverview();
+  }, [fetchOverview]);
+
+  const limitNum = Math.max(1, Number(pagination.limit) || 20);
+  const totalNum = Number(pagination.total) || 0;
+  const totalPages = Math.max(1, Math.ceil(totalNum / limitNum));
+  const start = totalNum === 0 ? 0 : (pagination.page - 1) * limitNum + 1;
+  const end = Math.min(pagination.page * limitNum, totalNum);
 
   const openMonthDetail = (societyId, month) => {
     setDetail(null);
     setDetailLoading(true);
     const params = new URLSearchParams({ societyId, year, month });
     axiosInstance
-      .get(ENDPOINTS.PAYMENTS.MONTH_DETAIL + '?' + params.toString())
+      .get(`${ENDPOINTS.PAYMENTS.MONTH_DETAIL}?${params.toString()}`)
       .then((res) => {
         if (res.data?.success) setDetail(res.data.data);
         else toast.error(res.data?.message || 'Failed to load detail');
@@ -93,7 +125,8 @@ const PaymentsList = () => {
         if (res.data?.success) {
           toast.success(res.data.data?.message || 'Invoices generated');
           setGenerateOpen(false);
-          fetchOverview(year);
+          setPagination((p) => ({ ...p, page: 1 }));
+          setListRefresh((n) => n + 1);
         } else toast.error(res.data?.message || 'Failed');
       })
       .catch(() => toast.error('Failed to generate invoices'))
@@ -109,92 +142,145 @@ const PaymentsList = () => {
   };
 
   return (
-    <div className="payments-page">
-      <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-        <h1 className="h4 mb-0 fw-semibold">Society Payments</h1>
-        <div className="d-flex align-items-center gap-2 flex-wrap">
-          <Button color="outline-primary" size="sm" onClick={() => setGenerateOpen(true)}>Generate recurring invoices</Button>
-          <Label className="mb-0 small text-muted">Year</Label>
-          <Input
-            type="select"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            style={{ width: 100 }}
-            className="form-select form-select-sm"
-          >
-            {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </Input>
+    <div>
+      <div className="page-header d-flex justify-content-between align-items-center flex-wrap">
+        <div>
+          <h1 className="mb-0">Society payments</h1>
+          <p className="text-muted small mb-0 mt-1">Monthly grid per society. Click a cell to open month detail and reminders.</p>
         </div>
+        <Button color="primary" size="sm" onClick={() => setGenerateOpen(true)}>Generate recurring invoices</Button>
       </div>
 
-      <Card className="shadow-sm border-0 rounded-3">
+      <Card className="table-card">
         <CardBody className="p-0">
+          <div className="px-3 py-2 border-bottom d-flex flex-nowrap justify-content-between align-items-center gap-2 overflow-x-auto">
+            <div className="small text-muted text-nowrap flex-shrink-0">
+              {loading ? 'Loading…' : (
+                <>Showing {totalNum === 0 ? 0 : start}–{end} of {totalNum} {totalNum !== 1 ? 'societies' : 'society'} · {overview.year}</>
+              )}
+            </div>
+            <div className="d-flex align-items-center gap-2 flex-shrink-0">
+              <Label className="small text-muted mb-0 text-nowrap">Year</Label>
+              <Input
+                type="select"
+                className="form-select form-select-sm"
+                style={{ width: 'auto', minWidth: 88 }}
+                value={year}
+                onChange={(e) => {
+                  setYear(Number(e.target.value));
+                  setPagination((p) => ({ ...p, page: 1 }));
+                }}
+              >
+                {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </Input>
+              <Label className="small text-muted mb-0 text-nowrap">Per page</Label>
+              <Input
+                type="select"
+                className="form-select form-select-sm"
+                style={{ width: 'auto', minWidth: 72 }}
+                value={pagination.limit}
+                onChange={(e) => {
+                  const limit = Number(e.target.value);
+                  setPagination((p) => ({ ...p, limit, page: 1 }));
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </Input>
+            </div>
+          </div>
           {loading ? (
             <div className="d-flex justify-content-center align-items-center py-5">
               <Spinner color="primary" />
             </div>
           ) : (
-            <div className="table-responsive">
-              <Table hover className="mb-0 align-middle">
-                <thead className="table-light">
-                  <tr>
-                    <th>Society</th>
-                    <th className="text-center">Billing cycle</th>
-                    <th className="text-center">Period amount</th>
-                    {MONTHS.map((m, i) => (
-                      <th key={i} className="text-center" style={{ minWidth: 64 }}>
-                        {m}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.data.length === 0 ? (
+            <>
+              <div className="table-responsive">
+                <Table hover size="sm" className="mb-0 align-middle">
+                  <thead className="table-light">
                     <tr>
-                      <td colSpan={16} className="text-center text-muted py-5">
-                        No societies found. Add societies and set monthly fee to see payments.
-                      </td>
+                      <th>Society</th>
+                      <th className="text-center">Billing cycle</th>
+                      <th className="text-center">Period amount</th>
+                      {MONTHS.map((m, i) => (
+                        <th key={i} className="text-center" style={{ minWidth: 64 }}>{m}</th>
+                      ))}
                     </tr>
-                  ) : (
-                    overview.data.map((row) => (
-                      <tr key={row.id}>
-                        <td>
-                          <strong>{row.name}</strong>
-                          {row.alias && <span className="text-muted small ms-1">({row.alias})</span>}
+                  </thead>
+                  <tbody>
+                    {overview.data.length === 0 ? (
+                      <tr>
+                        <td colSpan={16} className="text-center text-muted py-5">
+                          No societies found. Add societies and set monthly fee to see payments.
                         </td>
-                        <td className="text-center text-capitalize">{row.billingCycle || 'monthly'}</td>
-                        <td className="text-center">
-                          {row.billingCycle === 'yearly'
-                            ? `₹${Number(row.yearlyFee || row.monthlyFee * 12 || 0).toLocaleString()}/yr`
-                            : row.billingCycle === 'quarterly'
-                            ? `₹${Number(row.yearlyFee ? row.yearlyFee / 4 : row.monthlyFee * 3 || 0).toLocaleString()}/qtr`
-                            : `₹${Number(row.monthlyFee || 0).toLocaleString()}/mo`}
-                        </td>
-                        {MONTHS.map((_, i) => {
-                          const monthNum = i + 1;
-                          const m = row.months?.[monthNum];
-                          const { label, color } = cellStatus(m);
-                          return (
-                            <td key={i} className="text-center p-1">
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-link p-1 text-decoration-none"
-                                style={{ minWidth: 56 }}
-                                onClick={() => openMonthDetail(row.id, monthNum)}
-                              >
-                                <Badge color={color}>{label}</Badge>
-                              </button>
-                            </td>
-                          );
-                        })}
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </Table>
-            </div>
+                    ) : (
+                      overview.data.map((row) => (
+                        <tr key={row.id}>
+                          <td className="text-nowrap">
+                            <strong>{row.name}</strong>
+                            {row.alias && <span className="text-muted small ms-1">({row.alias})</span>}
+                          </td>
+                          <td className="text-center text-capitalize">{row.billingCycle || 'monthly'}</td>
+                          <td className="text-center small">
+                            {row.billingCycle === 'yearly'
+                              ? `₹${Number(row.yearlyFee || row.monthlyFee * 12 || 0).toLocaleString()}/yr`
+                              : row.billingCycle === 'quarterly'
+                                ? `₹${Number(row.yearlyFee ? row.yearlyFee / 4 : row.monthlyFee * 3 || 0).toLocaleString()}/qtr`
+                                : `₹${Number(row.monthlyFee || 0).toLocaleString()}/mo`}
+                          </td>
+                          {MONTHS.map((_, i) => {
+                            const monthNum = i + 1;
+                            const m = row.months?.[monthNum];
+                            const { label, color } = cellStatus(m);
+                            return (
+                              <td key={i} className="text-center p-1">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-link p-1 text-decoration-none"
+                                  style={{ minWidth: 56 }}
+                                  onClick={() => openMonthDetail(row.id, monthNum)}
+                                >
+                                  <Badge color={color}>{label}</Badge>
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center px-3 py-2 border-top gap-2">
+                  <span className="small text-muted order-2 order-sm-1 text-center text-sm-start">
+                    Page {pagination.page} of {totalPages}
+                  </span>
+                  <Pagination size="sm" className="mb-0 justify-content-center justify-content-sm-end order-1 order-sm-2 flex-wrap">
+                    <PaginationItem disabled={pagination.page <= 1}>
+                      <PaginationLink previous tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: prev.page - 1 }))} />
+                    </PaginationItem>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const p = pagination.page <= 3 ? i + 1 : Math.max(1, pagination.page - 2 + i);
+                      if (p > totalPages) return null;
+                      return (
+                        <PaginationItem key={p} active={p === pagination.page}>
+                          <PaginationLink tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: p }))}>{p}</PaginationLink>
+                        </PaginationItem>
+                      );
+                    })}
+                    <PaginationItem disabled={pagination.page >= totalPages}>
+                      <PaginationLink next tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))} />
+                    </PaginationItem>
+                  </Pagination>
+                </div>
+              )}
+            </>
           )}
         </CardBody>
       </Card>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Button,
   Card,
@@ -12,10 +12,15 @@ import {
   FormGroup,
   Label,
   Input,
+  Pagination,
+  PaginationItem,
+  PaginationLink,
 } from 'reactstrap';
 import axiosInstance from '../../../config/axiosInstance';
 import ENDPOINTS from '../../../config/apiUrls';
 import { toast } from 'react-toastify';
+import LinkOutlinedIcon from '@mui/icons-material/LinkOutlined';
+import ForwardToInboxOutlinedIcon from '@mui/icons-material/ForwardToInboxOutlined';
 
 const getInviteLink = (token) => {
   const base = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -43,30 +48,60 @@ const InvitesList = () => {
     address: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
+  const [listRefresh, setListRefresh] = useState(0);
 
-  const fetchList = () => {
+  const listFromResponse = (res) => {
+    const raw = res?.data;
+    if (!raw || typeof raw !== 'object') return [];
+    if (Array.isArray(raw.data)) return raw.data;
+    if (raw.Collection && Array.isArray(raw.Collection.data)) return raw.Collection.data;
+    return [];
+  };
+
+  const fetchList = useCallback(() => {
+    const { page, limit } = pagination;
     setLoading(true);
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', String(limit));
     axiosInstance
-      .get(ENDPOINTS.INVITES.LIST)
+      .get(`${ENDPOINTS.INVITES.LIST}?${params.toString()}`)
       .then((res) => {
-        const data = res.data?.data ?? [];
+        const data = listFromResponse(res);
         setList(Array.isArray(data) ? data : []);
+        const p = res.data?.pagination ?? {};
+        const total = res.data?.total ?? p.total ?? 0;
+        setPagination((prev) => ({
+          ...prev,
+          page: p.page ?? page,
+          limit: p.limit ?? prev.limit,
+          total: Number(total) || 0,
+        }));
       })
       .catch(() => {
         toast.error('Failed to load invites');
         setList([]);
       })
       .finally(() => setLoading(false));
-  };
+  }, [pagination.page, pagination.limit, listRefresh]);
 
   useEffect(() => {
     fetchList();
-  }, []);
+  }, [fetchList]);
+
+  const limitNum = Math.max(1, Number(pagination.limit) || 20);
+  const totalNum = Number(pagination.total) || 0;
+  const totalPages = Math.max(1, Math.ceil(totalNum / limitNum));
+  const start = totalNum === 0 ? 0 : (pagination.page - 1) * limitNum + 1;
+  const end = Math.min(pagination.page * limitNum, totalNum);
 
   useEffect(() => {
     if (modal) {
-      axiosInstance.get(ENDPOINTS.PLANS.LIST).then((res) => {
-        if (res.data?.success && Array.isArray(res.data.data)) setPlans(res.data.data);
+      axiosInstance.get(ENDPOINTS.PLANS.LIST + '?limit=100').then((res) => {
+        const d = listFromResponse(res);
+        if (res.data?.success !== false && Array.isArray(d)) setPlans(d);
+        else setPlans([]);
       }).catch(() => setPlans([]));
     }
   }, [modal]);
@@ -112,7 +147,8 @@ const InvitesList = () => {
             yearlyFee: 0,
             address: '',
           });
-          fetchList();
+          setPagination((p) => ({ ...p, page: 1 }));
+          setListRefresh((n) => n + 1);
         } else {
           toast.error(res.data?.message || 'Failed to create invite');
         }
@@ -156,57 +192,173 @@ const InvitesList = () => {
         <Button color="primary" onClick={() => setModal(true)}>Create Invite</Button>
       </div>
       <Card className="table-card">
-        <CardBody>
+        <CardBody className="p-0">
+          <div className="px-3 py-2 border-bottom d-flex flex-nowrap justify-content-between align-items-center gap-2 overflow-x-auto">
+            <div className="small text-muted text-nowrap flex-shrink-0">
+              {loading ? 'Loading invites…' : (
+                <>
+                  Showing {totalNum === 0 ? 0 : start}–{end} of {totalNum} invite{totalNum !== 1 ? 's' : ''}
+                </>
+              )}
+            </div>
+            <div className="d-flex align-items-center gap-2 flex-shrink-0">
+              <Label className="small text-muted mb-0 text-nowrap">Per page</Label>
+              <Input
+                type="select"
+                className="form-select form-select-sm"
+                style={{ width: 'auto', minWidth: 72 }}
+                value={pagination.limit}
+                onChange={(e) => {
+                  const limit = Number(e.target.value);
+                  setPagination((p) => ({ ...p, limit, page: 1 }));
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </Input>
+            </div>
+          </div>
           {loading ? (
-            <div className="d-flex justify-content-center py-5"><Spinner /></div>
+            <div className="d-flex justify-content-center py-5">
+              <Spinner color="primary" />
+            </div>
           ) : (
-            <Table responsive hover>
-              <thead>
-                <tr>
-                  <th>Society Name</th>
-                  <th>Address</th>
-                  <th>Email</th>
-                  <th>Plan</th>
-                  <th>Billing</th>
-                  <th>Flat Count</th>
-                  <th>Setup Fee</th>
-                  <th>Setup Paid</th>
-                  <th>Monthly Fee</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.societyName}</td>
-                    <td className="text-muted small" title={row.address || ''}>{row.address ? (row.address.length > 40 ? row.address.slice(0, 40) + '…' : row.address) : '–'}</td>
-                    <td>{row.email}</td>
-                    <td>{row.planName || row.planType || '–'}</td>
-                    <td className="text-capitalize small">{row.billingCycle || 'monthly'}{row.yearlyFee > 0 ? ` · ₹${Number(row.yearlyFee).toLocaleString()}/yr` : ''}</td>
-                    <td>{row.flatCount}</td>
-                    <td>₹{Number(row.setupFee || 0).toLocaleString()}</td>
-                    <td>{row.setupFee > 0 ? (row.setupFeePaid ? <span className="badge bg-success">Paid</span> : <span className="badge bg-warning text-dark">Pending</span>) : '–'}</td>
-                    <td>₹{Number(row.monthlyFee || 0).toLocaleString()}</td>
-                    <td><span className={`badge ${row.status === 'pending' ? 'bg-warning text-dark' : 'bg-secondary'}`}>{row.status}</span></td>
-                    <td>{row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '-'}</td>
-                    <td>
-                      {row.status === 'pending' && row.inviteToken && (
-                        <>
-                          <Button size="sm" color="info" className="me-1" onClick={() => setViewLinkRow(row)} title="View invite link">
-                            View link
-                          </Button>
-                          <Button size="sm" color="primary" onClick={() => handleResend(row)} disabled={resendingId === row.id} title="Resend invite email">
-                            {resendingId === row.id ? 'Sending…' : 'Resend'}
-                          </Button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+            <>
+              <div className="table-responsive">
+                <Table hover size="sm" className="mb-0 align-middle">
+                  <thead className="table-light">
+                    <tr>
+                      <th>Society</th>
+                      <th>Address</th>
+                      <th>Email</th>
+                      <th>Plan</th>
+                      <th className="text-end">Flats</th>
+                      <th>Recurring</th>
+                      <th>Setup</th>
+                      <th>Status</th>
+                      <th>Created</th>
+                      <th className="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="text-center text-muted py-5">
+                          No invites yet. Create one to invite a new society.
+                        </td>
+                      </tr>
+                    ) : (
+                      list.map((row) => (
+                        <tr key={row.id}>
+                          <td className="fw-medium text-nowrap">{row.societyName}</td>
+                          <td className="text-muted small" style={{ maxWidth: 200 }} title={row.address || ''}>
+                            {row.address ? (row.address.length > 48 ? `${row.address.slice(0, 48)}…` : row.address) : '–'}
+                          </td>
+                          <td className="small text-break">{row.email}</td>
+                          <td className="small">{row.planName || row.planType || '–'}</td>
+                          <td className="text-end">{row.flatCount}</td>
+                          <td className="small text-nowrap">
+                            <span className="text-capitalize">{(row.billingCycle || 'monthly').replace(/_/g, ' ')}</span>
+                            <span className="text-muted"> · </span>
+                            ₹{Number(row.monthlyFee || 0).toLocaleString()}/mo
+                            {row.yearlyFee > 0 && (
+                              <span className="d-block text-muted">₹{Number(row.yearlyFee).toLocaleString()}/yr</span>
+                            )}
+                          </td>
+                          <td className="small text-nowrap">
+                            ₹{Number(row.setupFee || 0).toLocaleString()}
+                            {row.setupFee > 0 && (
+                              <>
+                                {' '}
+                                {row.setupFeePaid ? (
+                                  <span className="badge bg-success">Paid</span>
+                                ) : (
+                                  <span className="badge bg-warning text-dark">Pending</span>
+                                )}
+                              </>
+                            )}
+                          </td>
+                          <td>
+                            <span className={`badge ${row.status === 'pending' ? 'bg-warning text-dark' : row.status === 'accepted' ? 'bg-success' : 'bg-secondary'}`}>
+                              {row.status}
+                            </span>
+                          </td>
+                          <td className="text-nowrap small">{row.createdAt ? new Date(row.createdAt).toLocaleDateString() : '–'}</td>
+                          <td className="text-end text-nowrap">
+                            {row.status === 'pending' && row.inviteToken && (
+                              <div className="d-inline-flex flex-nowrap align-items-center gap-1 text-nowrap">
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-info btn-sm p-1 lh-1"
+                                  title="View invite links"
+                                  aria-label="View invite links"
+                                  onClick={() => setViewLinkRow(row)}
+                                >
+                                  <LinkOutlinedIcon fontSize="small" />
+                                </button>
+                                {resendingId === row.id ? (
+                                  <span className="d-inline-flex p-1" aria-hidden="true">
+                                    <span className="spinner-border spinner-border-sm text-primary" role="status" />
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-primary btn-sm p-1 lh-1"
+                                    title="Resend invite email"
+                                    aria-label="Resend invite email"
+                                    onClick={() => handleResend(row)}
+                                  >
+                                    <ForwardToInboxOutlinedIcon fontSize="small" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center px-3 py-2 border-top gap-2">
+                  <span className="small text-muted order-2 order-sm-1 text-center text-sm-start">
+                    Page {pagination.page} of {totalPages}
+                  </span>
+                  <Pagination size="sm" className="mb-0 justify-content-center justify-content-sm-end order-1 order-sm-2 flex-wrap">
+                    <PaginationItem disabled={pagination.page <= 1}>
+                      <PaginationLink
+                        previous
+                        tag="button"
+                        type="button"
+                        onClick={() => setPagination((prev) => ({ ...prev, page: prev.page - 1 }))}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const p = pagination.page <= 3 ? i + 1 : Math.max(1, pagination.page - 2 + i);
+                      if (p > totalPages) return null;
+                      return (
+                        <PaginationItem key={p} active={p === pagination.page}>
+                          <PaginationLink tag="button" type="button" onClick={() => setPagination((prev) => ({ ...prev, page: p }))}>
+                            {p}
+                          </PaginationLink>
+                        </PaginationItem>
+                      );
+                    })}
+                    <PaginationItem disabled={pagination.page >= totalPages}>
+                      <PaginationLink
+                        next
+                        tag="button"
+                        type="button"
+                        onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))}
+                      />
+                    </PaginationItem>
+                  </Pagination>
+                </div>
+              )}
+            </>
           )}
         </CardBody>
       </Card>
