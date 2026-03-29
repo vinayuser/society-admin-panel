@@ -36,6 +36,33 @@ const BULK_NUMBER_STYLES = [
   { value: 'floorDash', label: 'Floor-flat (1-1, 1-2, 1-3, 1-4)', suffix: 'floor-flat' },
 ];
 
+/** Max flats per bulk add (client + aligns with server guard). */
+const BULK_FLATS_MAX = 10000;
+
+function flatNumberForStyle(floor, i, numberStyle, groundLabel) {
+  const fmtFloor = (f) => (f === 0 && groundLabel ? groundLabel : String(f));
+  const f = fmtFloor(floor);
+  switch (numberStyle) {
+    case 'floorLetter':
+      return f + String.fromCharCode(65 + (i % 26));
+    case 'floorLetter2': {
+      const a = Math.floor(i / 26);
+      const b = i % 26;
+      return f + String.fromCharCode(65 + a) + String.fromCharCode(65 + b);
+    }
+    case 'floorNum':
+      return String(floor * 100 + (i + 1));
+    case 'floorNumPad': {
+      const fl = floor === 0 && groundLabel ? groundLabel : (floor < 10 ? '0' : '') + floor;
+      const fi = (i + 1 < 10 ? '0' : '') + (i + 1);
+      return `${fl}-${fi}`;
+    }
+    case 'floorDash':
+    default:
+      return `${f}-${i + 1}`;
+  }
+}
+
 function generateBulkFlats(options) {
   const { towersStr, floorFrom, floorTo, flatsPerFloor, numberStyle, groundLabel, capTotal } = options;
   const towerList = towersStr.split(/[,;]/).map((t) => t.trim()).filter(Boolean);
@@ -44,45 +71,35 @@ function generateBulkFlats(options) {
   const floorStart = parseInt(floorFrom, 10);
   const floorEnd = parseInt(floorTo, 10);
   const perFloor = Math.max(1, Math.min(50, parseInt(flatsPerFloor, 10) || 1));
-  const cap = capTotal ? Math.max(1, parseInt(capTotal, 10)) : null;
+  const rawCap = capTotal ? Math.max(1, parseInt(capTotal, 10)) : null;
+  const cap = rawCap ? Math.min(rawCap, BULK_FLATS_MAX) : null;
   const flats = [];
-
-  const fmtFloor = (f) => (f === 0 && groundLabel ? groundLabel : String(f));
 
   for (const tower of towerList) {
     for (let floor = floorStart; floor <= floorEnd; floor++) {
-      const f = fmtFloor(floor);
       for (let i = 0; i < perFloor; i++) {
-        let flatNumber;
-        switch (numberStyle) {
-          case 'floorLetter':
-            flatNumber = f + String.fromCharCode(65 + (i % 26));
-            break;
-          case 'floorLetter2': {
-            const a = Math.floor(i / 26);
-            const b = i % 26;
-            flatNumber = f + String.fromCharCode(65 + a) + String.fromCharCode(65 + b);
-            break;
-          }
-          case 'floorNum':
-            flatNumber = String(floor * 100 + (i + 1));
-            break;
-          case 'floorNumPad': {
-            const fl = floor === 0 && groundLabel ? groundLabel : ((floor < 10 ? '0' : '') + floor);
-            const fi = (i + 1 < 10 ? '0' : '') + (i + 1);
-            flatNumber = `${fl}-${fi}`;
-            break;
-          }
-          case 'floorDash':
-          default:
-            flatNumber = `${f}-${i + 1}`;
-            break;
-        }
-        flats.push({ tower, flatNumber });
+        flats.push({ tower, flatNumber: flatNumberForStyle(floor, i, numberStyle, groundLabel) });
         if (cap && flats.length >= cap) return flats.slice(0, cap);
       }
     }
   }
+
+  // Cap is a target count: if the floor grid yields fewer flats than cap (e.g. 1 floor × 8 = 8),
+  // continue with higher floors using the same pattern until we reach cap.
+  if (cap && flats.length < cap) {
+    let nextFloor = floorEnd + 1;
+    const maxFloor = floorEnd + 5000;
+    while (flats.length < cap && nextFloor <= maxFloor) {
+      for (const tower of towerList) {
+        for (let i = 0; i < perFloor; i++) {
+          flats.push({ tower, flatNumber: flatNumberForStyle(nextFloor, i, numberStyle, groundLabel) });
+          if (flats.length >= cap) return flats.slice(0, cap);
+        }
+      }
+      nextFloor += 1;
+    }
+  }
+
   return cap ? flats.slice(0, cap) : flats;
 }
 
@@ -624,11 +641,16 @@ const FlatsList = () => {
                     <Input
                       type="number"
                       min={1}
+                      max={BULK_FLATS_MAX}
                       value={bulkOptions.capTotal}
                       onChange={(e) => setBulkOptions((o) => ({ ...o, capTotal: e.target.value }))}
-                      placeholder="e.g. 117 to match society flat count"
+                      placeholder="e.g. 200 — target number of flats to create"
                     />
-                    <p className="text-muted small mb-0">If set, only this many flats are generated (first N). Leave blank for no limit.</p>
+                    <p className="text-muted small mb-0">
+                      Target count: generates up to this many flats. If your floor range × flats per floor is smaller (e.g. only 8),
+                      extra floors are added automatically until this cap is reached (max {BULK_FLATS_MAX.toLocaleString()}).
+                      Leave blank for no cap (full grid only).
+                    </p>
                   </FormGroup>
                 </Col>
                 <Col md={6}>

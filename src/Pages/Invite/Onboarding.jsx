@@ -381,6 +381,12 @@ const Onboarding = () => {
                 {invite?.address && (
                   <span><strong className="text-dark">Address:</strong> {invite.address}</span>
                 )}
+                {(invite?.countryName || invite?.stateName || invite?.cityName) && (
+                  <span>
+                    <strong className="text-dark">Location:</strong>{' '}
+                    {[invite.countryName, invite.stateName, invite.cityName].filter(Boolean).join(' · ')}
+                  </span>
+                )}
                 <span><strong className="text-dark">Total flats:</strong> {invite?.flatCount ?? '–'}</span>
                 {invite?.email && (
                   <span><strong className="text-dark">Contact:</strong> {invite.email}</span>

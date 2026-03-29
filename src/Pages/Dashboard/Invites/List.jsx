@@ -27,6 +27,12 @@ const getInviteLink = (token) => {
   return `${base}/invite/${token}`;
 };
 
+function formatLocation(row) {
+  if (!row) return '–';
+  const parts = [row.countryName, row.stateName, row.cityName].filter(Boolean);
+  return parts.length ? parts.join(' · ') : '–';
+}
+
 const InvitesList = () => {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,10 +40,16 @@ const InvitesList = () => {
   const [viewLinkRow, setViewLinkRow] = useState(null);
   const [resendingId, setResendingId] = useState(null);
   const [plans, setPlans] = useState([]);
+  const [countries, setCountries] = useState([]);
+  const [states, setStates] = useState([]);
+  const [cities, setCities] = useState([]);
   const [form, setForm] = useState({
     societyName: '',
     contactEmail: '',
     contactPhone: '',
+    countryId: '',
+    stateId: '',
+    cityId: '',
     flatCount: 0,
     planType: 'shared_app',
     planId: '',
@@ -97,14 +109,55 @@ const InvitesList = () => {
   const end = Math.min(pagination.page * limitNum, totalNum);
 
   useEffect(() => {
-    if (modal) {
-      axiosInstance.get(ENDPOINTS.PLANS.LIST + '?limit=100').then((res) => {
+    if (!modal) return;
+    axiosInstance
+      .get(`${ENDPOINTS.LOCATIONS.COUNTRIES}?limit=500`)
+      .then((res) => {
+        const d = listFromResponse(res);
+        setCountries(Array.isArray(d) ? d : []);
+      })
+      .catch(() => setCountries([]));
+    axiosInstance
+      .get(`${ENDPOINTS.PLANS.LIST}?limit=100`)
+      .then((res) => {
         const d = listFromResponse(res);
         if (res.data?.success !== false && Array.isArray(d)) setPlans(d);
         else setPlans([]);
-      }).catch(() => setPlans([]));
-    }
+      })
+      .catch(() => setPlans([]));
   }, [modal]);
+
+  useEffect(() => {
+    if (!modal || !form.countryId) {
+      if (!form.countryId) setStates([]);
+      return;
+    }
+    const cid = Number(form.countryId);
+    if (!Number.isFinite(cid)) return;
+    axiosInstance
+      .get(`${ENDPOINTS.LOCATIONS.STATES}?countryId=${cid}&limit=500`)
+      .then((res) => {
+        const d = listFromResponse(res);
+        setStates(Array.isArray(d) ? d : []);
+      })
+      .catch(() => setStates([]));
+  }, [modal, form.countryId]);
+
+  useEffect(() => {
+    if (!modal || !form.stateId) {
+      if (!form.stateId) setCities([]);
+      return;
+    }
+    const sid = Number(form.stateId);
+    if (!Number.isFinite(sid)) return;
+    axiosInstance
+      .get(`${ENDPOINTS.LOCATIONS.CITIES}?stateId=${sid}&limit=500`)
+      .then((res) => {
+        const d = listFromResponse(res);
+        setCities(Array.isArray(d) ? d : []);
+      })
+      .catch(() => setCities([]));
+  }, [modal, form.stateId]);
 
   const handlePlanChange = (planId) => {
     const id = planId ? Number(planId) : null;
@@ -124,8 +177,15 @@ const InvitesList = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!form.countryId || !form.stateId || !form.cityId) {
+      toast.error('Select country, state, and city');
+      return;
+    }
     setSubmitting(true);
     const payload = { ...form };
+    payload.countryId = Number(form.countryId);
+    payload.stateId = Number(form.stateId);
+    payload.cityId = Number(form.cityId);
     if (payload.planId) payload.planId = Number(payload.planId);
     if (!payload.planId) delete payload.planId;
     axiosInstance
@@ -138,6 +198,9 @@ const InvitesList = () => {
             societyName: '',
             contactEmail: '',
             contactPhone: '',
+            countryId: '',
+            stateId: '',
+            cityId: '',
             flatCount: 0,
             planType: 'shared_app',
             planId: '',
@@ -147,6 +210,8 @@ const InvitesList = () => {
             yearlyFee: 0,
             address: '',
           });
+          setStates([]);
+          setCities([]);
           setPagination((p) => ({ ...p, page: 1 }));
           setListRefresh((n) => n + 1);
         } else {
@@ -232,6 +297,7 @@ const InvitesList = () => {
                     <tr>
                       <th>Society</th>
                       <th>Address</th>
+                      <th>Location</th>
                       <th>Email</th>
                       <th>Plan</th>
                       <th className="text-end">Flats</th>
@@ -245,7 +311,7 @@ const InvitesList = () => {
                   <tbody>
                     {list.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="text-center text-muted py-5">
+                        <td colSpan={11} className="text-center text-muted py-5">
                           No invites yet. Create one to invite a new society.
                         </td>
                       </tr>
@@ -255,6 +321,9 @@ const InvitesList = () => {
                           <td className="fw-medium text-nowrap">{row.societyName}</td>
                           <td className="text-muted small" style={{ maxWidth: 200 }} title={row.address || ''}>
                             {row.address ? (row.address.length > 48 ? `${row.address.slice(0, 48)}…` : row.address) : '–'}
+                          </td>
+                          <td className="small text-muted" style={{ maxWidth: 200 }} title={formatLocation(row)}>
+                            {formatLocation(row)}
                           </td>
                           <td className="small text-break">{row.email}</td>
                           <td className="small">{row.planName || row.planType || '–'}</td>
@@ -418,6 +487,68 @@ const InvitesList = () => {
                 <FormGroup className="mb-0">
                   <Label className="form-label fw-medium">Society Address</Label>
                   <Input type="textarea" rows={2} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="Full address (used everywhere for this society)" className="rounded" />
+                </FormGroup>
+              </div>
+              <div className="col-md-4">
+                <FormGroup className="mb-0">
+                  <Label className="form-label fw-medium">Country *</Label>
+                  <Input
+                    type="select"
+                    required
+                    value={form.countryId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((f) => ({ ...f, countryId: v, stateId: '', cityId: '' }));
+                      setStates([]);
+                      setCities([]);
+                    }}
+                    className="rounded"
+                  >
+                    <option value="">Select country</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </Input>
+                </FormGroup>
+              </div>
+              <div className="col-md-4">
+                <FormGroup className="mb-0">
+                  <Label className="form-label fw-medium">State *</Label>
+                  <Input
+                    type="select"
+                    required
+                    value={form.stateId}
+                    disabled={!form.countryId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((f) => ({ ...f, stateId: v, cityId: '' }));
+                      setCities([]);
+                    }}
+                    className="rounded"
+                  >
+                    <option value="">{form.countryId ? 'Select state' : 'Select country first'}</option>
+                    {states.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </Input>
+                </FormGroup>
+              </div>
+              <div className="col-md-4">
+                <FormGroup className="mb-0">
+                  <Label className="form-label fw-medium">City *</Label>
+                  <Input
+                    type="select"
+                    required
+                    value={form.cityId}
+                    disabled={!form.stateId}
+                    onChange={(e) => setForm((f) => ({ ...f, cityId: e.target.value }))}
+                    className="rounded"
+                  >
+                    <option value="">{form.stateId ? 'Select city' : 'Select state first'}</option>
+                    {cities.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </Input>
                 </FormGroup>
               </div>
               <div className="col-md-6">

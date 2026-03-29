@@ -28,6 +28,7 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutline';
+import LockResetOutlinedIcon from '@mui/icons-material/LockResetOutlined';
 
 const statusBadge = (status) => {
   if (status === 'active') return <Badge color="success">Active</Badge>;
@@ -42,6 +43,12 @@ const DetailRow = ({ label, value }) => (
     <span>{value != null && value !== '' ? value : '–'}</span>
   </div>
 );
+
+function formatLocation(row) {
+  if (!row) return '–';
+  const parts = [row.countryName, row.stateName, row.cityName].filter(Boolean);
+  return parts.length ? parts.join(' · ') : '–';
+}
 
 const SocietiesList = () => {
   const [list, setList] = useState([]);
@@ -60,6 +67,13 @@ const SocietiesList = () => {
   const [detailModal, setDetailModal] = useState(null);
   const [detailData, setDetailData] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [resetPwdModal, setResetPwdModal] = useState(null);
+  const [resetPwdAdmins, setResetPwdAdmins] = useState([]);
+  const [resetPwdLoading, setResetPwdLoading] = useState(false);
+  const [resetPwdUserId, setResetPwdUserId] = useState('');
+  const [resetPwdNew, setResetPwdNew] = useState('');
+  const [resetPwdConfirm, setResetPwdConfirm] = useState('');
+  const [resetPwdSubmitting, setResetPwdSubmitting] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
   const [listRefresh, setListRefresh] = useState(0);
 
@@ -163,6 +177,72 @@ const SocietiesList = () => {
       .catch(() => toast.error('Failed to load society details'))
       .finally(() => setDetailLoading(false));
   }, []);
+
+  const closeResetPwdModal = useCallback(() => {
+    setResetPwdModal(null);
+    setResetPwdAdmins([]);
+    setResetPwdUserId('');
+    setResetPwdNew('');
+    setResetPwdConfirm('');
+  }, []);
+
+  const openResetPassword = useCallback((row) => {
+    setResetPwdModal(row);
+    setResetPwdAdmins([]);
+    setResetPwdUserId('');
+    setResetPwdNew('');
+    setResetPwdConfirm('');
+    setResetPwdLoading(true);
+    axiosInstance
+      .get(ENDPOINTS.SOCIETIES.GET(row.id))
+      .then((res) => {
+        const data = res.data?.data;
+        const admins = Array.isArray(data?.adminUsers) ? data.adminUsers : [];
+        setResetPwdAdmins(admins);
+        if (admins.length === 1) setResetPwdUserId(String(admins[0].id));
+      })
+      .catch(() => {
+        toast.error('Failed to load society admins');
+        closeResetPwdModal();
+      })
+      .finally(() => setResetPwdLoading(false));
+  }, [closeResetPwdModal]);
+
+  const submitResetPassword = (e) => {
+    e.preventDefault();
+    if (!resetPwdModal) return;
+    const uid = Number(resetPwdUserId);
+    if (!uid) {
+      toast.error('Select a society admin');
+      return;
+    }
+    if (resetPwdNew.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    if (resetPwdNew !== resetPwdConfirm) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setResetPwdSubmitting(true);
+    axiosInstance
+      .post(ENDPOINTS.SOCIETIES.RESET_ADMIN_PASSWORD(resetPwdModal.id), {
+        userId: uid,
+        newPassword: resetPwdNew,
+      })
+      .then((res) => {
+        if (res.data?.success) {
+          toast.success(res.data?.message || 'Password updated');
+          closeResetPwdModal();
+        } else {
+          toast.error(res.data?.message || 'Failed to reset password');
+        }
+      })
+      .catch((err) => {
+        toast.error(err.response?.data?.message || 'Failed to reset password');
+      })
+      .finally(() => setResetPwdSubmitting(false));
+  };
 
   const openEdit = (row) => {
     setEditing(row);
@@ -298,7 +378,7 @@ const SocietiesList = () => {
                   <tbody>
                     {list.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="text-center text-muted py-5">
+                        <td colSpan={11} className="text-center text-muted py-5">
                           <p className="mb-1">No societies yet.</p>
                           <p className="small mb-0">Societies appear here after an invite is accepted and onboarding is completed.</p>
                         </td>
@@ -312,6 +392,9 @@ const SocietiesList = () => {
                           </td>
                           <td className="text-muted small" style={{ maxWidth: 200 }} title={row.address || ''}>
                             {row.address ? (row.address.length > 48 ? `${row.address.slice(0, 48)}…` : row.address) : '–'}
+                          </td>
+                          <td className="small text-muted" style={{ maxWidth: 200 }} title={formatLocation(row)}>
+                            {formatLocation(row)}
                           </td>
                           <td className="small">
                             <div className="text-break">{row.email || '–'}</div>
@@ -360,6 +443,15 @@ const SocietiesList = () => {
                                 onClick={() => openEdit(row)}
                               >
                                 <EditOutlinedIcon fontSize="small" />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline-dark btn-sm p-1 lh-1"
+                                title="Reset society admin password"
+                                aria-label="Reset society admin password"
+                                onClick={() => openResetPassword(row)}
+                              >
+                                <LockResetOutlinedIcon fontSize="small" />
                               </button>
                               {row.status !== 'active' && (
                                 updatingStatusId === row.id ? (
@@ -623,6 +715,79 @@ const SocietiesList = () => {
         </ModalBody>
       </Modal>
 
+      <Modal isOpen={!!resetPwdModal} toggle={closeResetPwdModal}>
+        <ModalHeader toggle={closeResetPwdModal}>
+          Reset society admin password
+          {resetPwdModal ? ` — ${resetPwdModal.name}` : ''}
+        </ModalHeader>
+        <form onSubmit={submitResetPassword}>
+          <ModalBody>
+            {resetPwdLoading ? (
+              <div className="d-flex justify-content-center py-4"><Spinner /></div>
+            ) : resetPwdAdmins.length === 0 ? (
+              <p className="text-muted mb-0">No society admin login accounts found for this society.</p>
+            ) : (
+              <>
+                <FormGroup>
+                  <Label for="resetPwdUserId">Admin account</Label>
+                  <Input
+                    id="resetPwdUserId"
+                    type="select"
+                    value={resetPwdUserId}
+                    onChange={(e) => setResetPwdUserId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select admin…</option>
+                    {resetPwdAdmins.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {(u.name || '—') + (u.email ? ` (${u.email})` : '')}
+                      </option>
+                    ))}
+                  </Input>
+                </FormGroup>
+                <FormGroup>
+                  <Label for="resetPwdNew">New password</Label>
+                  <Input
+                    id="resetPwdNew"
+                    type="password"
+                    autoComplete="new-password"
+                    value={resetPwdNew}
+                    onChange={(e) => setResetPwdNew(e.target.value)}
+                    minLength={6}
+                    required
+                  />
+                </FormGroup>
+                <FormGroup className="mb-0">
+                  <Label for="resetPwdConfirm">Confirm password</Label>
+                  <Input
+                    id="resetPwdConfirm"
+                    type="password"
+                    autoComplete="new-password"
+                    value={resetPwdConfirm}
+                    onChange={(e) => setResetPwdConfirm(e.target.value)}
+                    minLength={6}
+                    required
+                  />
+                </FormGroup>
+                <p className="small text-muted mt-2 mb-0">The selected admin can sign in with this new password immediately.</p>
+              </>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button type="button" color="secondary" outline onClick={closeResetPwdModal}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              color="primary"
+              disabled={resetPwdLoading || resetPwdAdmins.length === 0 || resetPwdSubmitting}
+            >
+              {resetPwdSubmitting ? 'Saving…' : 'Update password'}
+            </Button>
+          </ModalFooter>
+        </form>
+      </Modal>
+
       {/* Society detail modal */}
       <Modal isOpen={!!detailModal} toggle={() => setDetailModal(null)} size="lg">
         <ModalHeader toggle={() => setDetailModal(null)}>
@@ -658,6 +823,7 @@ const SocietiesList = () => {
               <Row>
                 <Col md={6}>
                   <DetailRow label="Address" value={detailData.address} />
+                  <DetailRow label="Country / state / city" value={formatLocation(detailData)} />
                   <DetailRow label="Total flats" value={detailData.totalFlats} />
                   <DetailRow label="Theme color" value={detailData.themeColor ? (
                     <span className="d-flex align-items-center gap-2">

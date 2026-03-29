@@ -7,6 +7,11 @@ const ENDPOINTS = {
     REFRESH: `${API_PREFIX}/auth/refresh`,
     LOGOUT: `${API_PREFIX}/auth/logout`,
   },
+  LOCATIONS: {
+    COUNTRIES: `${API_PREFIX}/locations/countries`,
+    STATES: `${API_PREFIX}/locations/states`,
+    CITIES: `${API_PREFIX}/locations/cities`,
+  },
   INVITES: {
     LIST: `${API_PREFIX}/society-invites`,
     CREATE: `${API_PREFIX}/society-invites`,
@@ -19,6 +24,7 @@ const ENDPOINTS = {
     GET: (id) => `${API_PREFIX}/societies/${id}`,
     UPDATE: (id) => `${API_PREFIX}/societies/${id}`,
     UPDATE_STATUS: (id) => `${API_PREFIX}/societies/${id}/status`,
+    RESET_ADMIN_PASSWORD: (id) => `${API_PREFIX}/societies/${id}/admin-password`,
     MY_CONFIG: `${API_PREFIX}/societies/me/config`,
     UPDATE_CONFIG: `${API_PREFIX}/societies/me/config`,
   },
